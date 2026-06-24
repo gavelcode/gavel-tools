@@ -1,0 +1,1 @@
+common --registry=https://bcr.bazel.build

@@ -1,0 +1,14 @@
+{
+  "name": "gavel-eslint",
+  "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": []
+  },
+  "dependencies": {
+    "eslint": "10.2.1",
+    "@eslint/js": "10.0.1",
+    "typescript-eslint": "8.58.2",
+    "@microsoft/eslint-formatter-sarif": "3.1.0",
+    "debug": "4.4.3"
+  }
+}
