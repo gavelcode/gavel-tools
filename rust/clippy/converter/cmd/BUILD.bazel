@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "cmd_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/gavelcode/gavel-tools/rust/clippy/converter/cmd",
+    visibility = ["//visibility:private"],
+    deps = ["//rust/clippy/converter"],
+)
+
+go_binary(
+    name = "converter",
+    embed = [":cmd_lib"],
+    visibility = ["//visibility:public"],
+)
