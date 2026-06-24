@@ -451,12 +451,30 @@ def _python_bandit_aspect_impl(target, ctx):
     site_packages = ctx.attr._bandit_packages.files.to_list()
     site_packages_dir = site_packages[0].path.split("/site-packages/")[0] + "/site-packages" if site_packages else ""
 
+    # Bandit (via stevedore) needs Python 3.10+, so run it under the hermetic
+    # interpreter from the consumer's rules_python toolchain rather than
+    # whatever python3 happens to be on PATH.
+    runtime = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime
+    interpreter_inputs = []
+    interpreter_transitive = []
+    if runtime.interpreter:
+        python_path = runtime.interpreter.path
+        interpreter_inputs = [runtime.interpreter]
+        interpreter_transitive = [runtime.files]
+    else:
+        python_path = runtime.interpreter_path
+
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".bandit.sarif")
     ctx.actions.run(
         executable = ctx.executable._bandit_sarif,
-        inputs = srcs + site_packages + _lint_config_files(ctx),
+        inputs = depset(
+            direct = srcs + site_packages + _lint_config_files(ctx) + interpreter_inputs,
+            transitive = interpreter_transitive,
+        ),
         outputs = [output],
         arguments = [
+            "--python",
+            python_path,
             "--site-packages",
             site_packages_dir,
             "--out",
@@ -475,6 +493,7 @@ python_bandit_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
+    toolchains = ["@rules_python//python:toolchain_type"],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_bandit_packages": attr.label(
