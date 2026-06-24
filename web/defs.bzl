@@ -33,7 +33,9 @@ def web_project(
         name,
         entry_point,
         tsconfig,
-        tools,
+        eslint,
+        tsc,
+        tailwind = None,
         srcs = None,
         html = "index.html",
         runtime_deps = [],
@@ -54,7 +56,9 @@ def web_project(
         name: base name; the production build is `:{name}`.
         entry_point: bundle entry, e.g. "src/main.tsx".
         tsconfig: tsconfig used for bundling, type-check and lint.
-        tools: struct(eslint, tsc, tailwind) of the consumer's npm `bin` modules.
+        eslint: the consumer's eslint npm `bin` module (provides `eslint_test`).
+        tsc: the consumer's typescript npm `bin` module (provides `tsc_test`).
+        tailwind: the consumer's tailwindcss npm `bin` module; required iff `css_deps`.
         srcs: TS/TSX/CSS sources; defaults to globbing `src/**`.
         html: HTML entry copied into the dist output.
         runtime_deps: npm package names linked for the bundle.
@@ -73,7 +77,7 @@ def web_project(
     ts_srcs = srcs if srcs != None else native.glob(["src/**/*.ts", "src/**/*.tsx"])
     css_srcs = native.glob(["src/**/*.css"])
     static_assets = assets if assets != None else native.glob(["public/**/*"], allow_empty = True)
-    config_srcs = [tsconfig, eslint_config] + ([tailwind_config] if css_deps else [])
+    config_srcs = native.glob(["tsconfig*.json"]) + [eslint_config] + ([tailwind_config] if css_deps else [])
 
     runtime = _node_modules(runtime_deps)
     types = _node_modules(type_deps)
@@ -100,7 +104,7 @@ def web_project(
     ]
 
     if css_deps:
-        tools.tailwind.tailwindcss(
+        tailwind.tailwindcss(
             name = name + ".styles",
             srcs = css_srcs + ts_srcs + config_srcs + [html] + css_pkgs,
             outs = [name + ".styles.css"],
@@ -116,14 +120,14 @@ def web_project(
         visibility = build_vis,
     )
 
-    tools.tsc.tsc_test(
+    tsc.tsc_test(
         name = name + ".typecheck",
         args = ["--noEmit", "-p", tsconfig],
         chdir = native.package_name(),
         data = ts_srcs + css_srcs + config_srcs + runtime + types,
     )
 
-    tools.eslint.eslint_test(
+    eslint.eslint_test(
         name = name + ".lint",
         args = ["--config", eslint_config, "src/"],
         chdir = native.package_name(),
