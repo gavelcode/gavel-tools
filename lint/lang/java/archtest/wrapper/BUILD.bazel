@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "wrapper_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/gavelcode/gavel-tools/lint/lang/java/archtest/wrapper",
+    visibility = ["//visibility:private"],
+    deps = ["//lint/archtest"],
+)
+
+go_binary(
+    name = "wrapper",
+    embed = [":wrapper_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "wrapper_test",
+    srcs = ["main_test.go"],
+    embed = [":wrapper_lib"],
+    deps = [
+        "//lint/archtest",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

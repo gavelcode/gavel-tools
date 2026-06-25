@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "converter",
+    srcs = ["converter.go"],
+    importpath = "github.com/gavelcode/gavel-tools/lint/lang/rust/clippy/converter",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "converter_test",
+    srcs = ["converter_test.go"],
+    deps = [
+        ":converter",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

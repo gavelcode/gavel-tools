@@ -87,29 +87,43 @@ and Gavel evaluates the gate itself.
 > Measure this with a prototype on one language (ruff is the cleanest) before
 > delegating the rest.
 
-## Repository structure (target, flattened)
+## Repository structure
 
-`tools/` was a monorepo artifact; in a standalone module the whole repo *is*
-tooling, so it is removed. The layout reflects the tiers:
+The module does two things — **lint** and **scaffold builds** — and the root
+reflects exactly those two categories. (`tools/` was a monorepo artifact and was
+removed; nothing is nested under a redundant segment.)
 
 ```
 gavel-tools/
-├── MODULE.bazel, BUILD.bazel, go.mod, go.sum, README.md, LICENSE
-├── catalog.yaml                 # default catalog (the menu) — see below
+├── MODULE.bazel  BUILD.bazel  go.mod  go.sum  README.md  LICENSE
+├── docs/architecture.md
 │
-├── aspects/defs.bzl             # NATIVE (no-sandbox) aspects
-├── archtest/                    #   shared Go library (layer rules)
-├── go/golangci_lint/            #   golangci-lint wrapper + repositories.bzl
-├── java/error_prone/            #   Error Prone wrapper + repositories.bzl
-├── python/pycompile/            #   pycompile wrapper
+├── lint/                              # LINTERS → consumed via --aspects
+│   ├── catalog.yaml                   #   language→tools menu (default catalog)
+│   ├── aspects/defs.bzl               #   the Starlark lint engine
+│   ├── archtest/                      #   shared Go arch-rules library
+│   └── lang/                          #   per-language wrappers + tool repos
+│       ├── go/golangci_lint/
+│       ├── java/{pmd,spotbugs,error_prone,cpd}/
+│       ├── python/{ruff,bandit,pycompile}/
+│       ├── rust/clippy/
+│       └── typescript/eslint/
 │
-└── rules_lint/                  # SANDBOX tier — the rules_lint glue lives HERE
-    └── linters.bzl              #   pre-wired preset: pmd, ruff, bandit, eslint,
-                                 #   cpd, clippy, spotbugs (+ opt-in extras)
+└── macros/                            # BUILD MACROS → consumed via load()
+    └── web.bzl                        #   web_project (frontend build graph)
 ```
 
-Labels become `@gavel_tools//aspects:...`, `@gavel_tools//rules_lint:...`,
-`@gavel_tools//:catalog.yaml` — no redundant `tools/` segment.
+Labels:
+
+- `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect`
+- `@gavel_tools//lint/lang/go/golangci_lint:repositories.bzl`
+- `@gavel_tools//lint:catalog.yaml`
+- `@gavel_tools//macros:web.bzl%web_project`
+
+The root holds only `lint/`, `macros/`, `docs/` and the module files — separated
+by *kind* (linters vs build macros), and within `lint/` by *role* (menu / engine
+/ shared lib / languages). "Is `rust` a language or a macro?" is unambiguous:
+`rust` is a language under `lint/lang/`; `web` is a macro under `macros/`.
 
 ## Tool binary ownership
 
@@ -202,3 +216,44 @@ eslint, cpd, clippy, spotbugs). Never delete before the replacement is proven.
   SARIF fidelity is proven per language.
 
 [aspect-build/rules_lint]: https://github.com/aspect-build/rules_lint
+
+---
+
+## Update (2026-06-25) — fidelity measured, delegation reversed, macros added
+
+The "delegate the sandbox tier to rules_lint" plan above (Phases 2/4) was tested
+and **reversed**. Corrections that supersede the sections above:
+
+### rules_lint's SARIF is lossy — it is a breadth add-on, not a substitute
+rules_lint runs each linter in plain-text mode and converts to SARIF via
+`reviewdog/errorformat`. For ruff (and similar) the rule code (`E501`) ends up in
+the **message text**, and `ruleId` is left **empty** — which Gavel's parser
+rejects (it keys baselines/fingerprints/severity on `ruleId`). Our native
+wrappers use each tool's **native SARIF** (e.g. `ruff --output-format=sarif`,
+`@microsoft/eslint-formatter-sarif`), which is strictly higher fidelity. So:
+
+- **Native wrappers stay** — they are not redundant; they are higher-fidelity for
+  every tool we cover. Nothing is delegated-and-deleted. (Phase 4 is cancelled.)
+- **rules_lint is breadth-only** — useful *only* for tools/languages we do not
+  wrap (flake8, pylint, checkstyle, clang_tidy, ktlint, vale, yamllint, …), where
+  reviewdog-quality beats nothing. SpotBugs stays native (it is not delegated).
+
+### The sandbox axis still holds — but sandbox the source-only natives
+`no-sandbox` is used only where the tool needs the real environment (golangci,
+Error Prone, archtest). The source-only wrappers (ruff, pmd, eslint, bandit, cpd)
+use `no-sandbox` only by habit and should be sandboxed to shed the cache/host tax
+while keeping native-SARIF fidelity — best of both, beating rules_lint on all
+axes.
+
+### Build macros are a first-class product of this module
+`macros/web.bzl` ships `web_project`, which generates a frontend app's whole
+Bazel build graph (esbuild + tailwind + dist copies + tsc + eslint) from one
+call, so consumers stop hand-wiring ~180 lines. Owning build complexity for the
+painful languages — not just linting — is part of this module's mission.
+
+### Open: hermetic type-aware ESLint
+Type-aware ESLint needs the consumer to expose its tsconfig + type/plugin npm
+closure as Bazel inputs (a `js_lib_helpers.gather_files_from_js_infos` gather in
+the aspect + the closure declared by the consumer — which `web_project` already
+declares). WIP aspect changes are stashed; the consumer-convention layer is the
+remaining work.
