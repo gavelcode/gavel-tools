@@ -62,6 +62,6 @@ Type-aware ESLint (the powerful `@typescript-eslint` rules) needs the consumer t
 expose its tsconfig + type/plugin npm closure as Bazel inputs — a
 `js_lib_helpers.gather_files_from_js_infos` gather in the eslint aspect, plus the
 closure declared by the consumer (which `web_project` already declares via
-`type_deps` / `lint_deps` / `tsconfig`). The aspect-side gather is WIP (stashed);
+`type_deps` / `lint_deps` / `tsconfig`). The aspect-side gather is not yet implemented;
 the consumer-convention layer is the remaining work. Until then, `:web.lint` runs
 the existing non-type-aware eslint aspect.

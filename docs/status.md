@@ -29,6 +29,6 @@ description: What is done in gavel-tools, and what remains.
    `no-sandbox` only by habit; declare their inputs and drop it to shed the cache
    /host tax while keeping native-SARIF fidelity (see [tier-model](tier-model.md)).
 3. **Hermetic type-aware ESLint** — finish the aspect-side type-graph gather +
-   the consumer-convention layer (see [web-project](web-project.md); WIP stashed).
+   the consumer-convention layer (see [web-project](web-project.md); planned).
 4. **rules_lint breadth backend** — wire it *only* for tools we do not wrap, when
    that breadth is wanted.
