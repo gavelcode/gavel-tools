@@ -1,7 +1,7 @@
 ---
 title: Repository layout
 type: reference
-summary: The lint/ + macros/ structure, the resulting labels, and tool-binary ownership.
+description: The lint/ + macros/ structure, the resulting labels, and tool-binary ownership.
 ---
 
 # Repository layout

@@ -1,7 +1,7 @@
 ---
 title: rules_lint — breadth add-on, not a substitute
 type: explanation
-summary: Measured — rules_lint's reviewdog SARIF drops ruleId, so it is only for tools we don't wrap.
+description: Measured — rules_lint's reviewdog SARIF drops ruleId, so it is only for tools we don't wrap.
 ---
 
 # rules_lint — breadth add-on, not a substitute

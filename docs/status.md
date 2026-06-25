@@ -1,7 +1,7 @@
 ---
 title: Status & next steps
 type: explanation
-summary: What is done in gavel-tools, and what remains.
+description: What is done in gavel-tools, and what remains.
 ---
 
 # Status & next steps

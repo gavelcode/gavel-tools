@@ -1,7 +1,7 @@
 ---
 title: The sandbox axis
 type: explanation
-summary: One question decides how each analyzer runs — does it need the real build environment?
+description: One question decides how each analyzer runs — does it need the real build environment?
 ---
 
 # The sandbox axis

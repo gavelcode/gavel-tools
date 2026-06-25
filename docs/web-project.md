@@ -1,7 +1,7 @@
 ---
 title: web_project macro
 type: reference
-summary: One macro that generates a frontend app's whole Bazel build graph.
+description: One macro that generates a frontend app's whole Bazel build graph.
 ---
 
 # web_project macro

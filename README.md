@@ -23,16 +23,9 @@ Gavel is SARIF files on disk — there are no Go imports across the boundary.
 
 ## Documentation
 
-Design docs live in [`docs/`](docs/) as a per-concept bundle (one file per
-concept, each with a `title` / `type` / `summary` header):
-
-- [Repository layout](docs/repository-layout.md) — the `lint/` + `macros/` structure
-- [The sandbox axis](docs/tier-model.md) — which tools run sandboxed vs `no-sandbox`, and why
-- [SARIF boundary](docs/sarif-boundary.md) — how findings flow to the platform
-- [rules_lint](docs/rules-lint.md) — why it's a breadth add-on, not a substitute
-- [Catalog](docs/catalog.md) — the two-layer config
-- [web_project](docs/web-project.md) — the frontend build macro
-- [Status](docs/status.md) — what's done, what's next
+Design docs live in [`docs/`](docs/index.md) as an OKF-style concept bundle —
+one markdown file per concept, each with a `type` / `title` / `description`
+header, plus a reserved [`index.md`](docs/index.md) that maps them.
 
 ## License
 

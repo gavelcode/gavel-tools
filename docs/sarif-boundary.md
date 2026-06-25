@@ -1,7 +1,7 @@
 ---
 title: The SARIF boundary
 type: reference
-summary: How findings flow from aspects to the platform — SARIF files on disk.
+description: How findings flow from aspects to the platform — SARIF files on disk.
 ---
 
 # The SARIF boundary

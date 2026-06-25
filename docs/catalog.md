@@ -1,7 +1,7 @@
 ---
 title: The catalog — two-layer config
 type: reference
-summary: catalog.yaml is the default menu of language→tools; gavel.yaml selects per project.
+description: catalog.yaml is the default menu of language→tools; gavel.yaml selects per project.
 ---
 
 # The catalog — two-layer config
