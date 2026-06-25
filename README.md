@@ -14,8 +14,8 @@ output to SARIF.** It does two things:
 - **Scaffolds builds** — macros (e.g. `web_project`) that generate a project's
   whole Bazel build graph so consumers stop hand-wiring it.
 
-Built for the **Gavel** quality platform, but usable on its own: the interface
-is **SARIF files on disk** (output group
+Built for the [Gavel](https://github.com/gavelcode/gavel) quality platform, but
+usable on its own: the interface is **SARIF files on disk** (output group
 `gavel_submissions`) — no Go imports cross the boundary, so any SARIF-aware
 consumer can read the results.
 
