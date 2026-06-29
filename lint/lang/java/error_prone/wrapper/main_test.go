@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -176,7 +177,7 @@ func TestToSARIF(t *testing.T) {
 		{File: "src/Bar.java", Line: 5, Level: "error", RuleID: "MustBeClosedChecker", Message: "This resource must be closed"},
 	}
 
-	got := toSARIF(findings)
+	got := toSARIF(findings, true, nil)
 
 	assert.Equal(t, "2.1.0", got.Version)
 	require.Len(t, got.Runs, 1)
@@ -190,7 +191,7 @@ func TestToSARIF(t *testing.T) {
 }
 
 func TestToSARIFEmpty(t *testing.T) {
-	got := toSARIF(nil)
+	got := toSARIF(nil, true, nil)
 
 	require.Len(t, got.Runs, 1)
 	assert.Empty(t, got.Runs[0].Results)
@@ -372,4 +373,59 @@ func TestRuleList(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "A", got[0].ID)
+}
+
+func TestDetectCompilerErrors(t *testing.T) {
+	stderr := `src/Foo.java:118: error: package org.junit does not exist
+import org.junit.Test;
+                ^
+src/Foo.java:25: error: [MustBeClosedChecker] This resource must be closed
+src/Foo.java:40: error: cannot find symbol
+1 error`
+
+	got := detectCompilerErrors(stderr)
+
+	require.Len(t, got, 2)
+	assert.Contains(t, got[0], "package org.junit does not exist")
+	assert.Contains(t, got[1], "cannot find symbol")
+}
+
+func TestDetectCompilerErrors_OnlyErrorProneFindings(t *testing.T) {
+	stderr := "src/Foo.java:25: error: [MustBeClosedChecker] must be closed\nsrc/Foo.java:10: warning: [DeadException] x\n"
+
+	assert.Empty(t, detectCompilerErrors(stderr))
+}
+
+func TestExecutionStatus_CleanRun(t *testing.T) {
+	ok, notes := executionStatus(nil, nil)
+
+	assert.True(t, ok)
+	assert.Empty(t, notes)
+}
+
+func TestExecutionStatus_CompileErrors(t *testing.T) {
+	ok, notes := executionStatus(nil, []string{"Foo.java:1: error: package x does not exist"})
+
+	assert.False(t, ok)
+	require.Len(t, notes, 1)
+	assert.Contains(t, notes[0], "incomplete")
+}
+
+func TestExecutionStatus_LaunchFailure(t *testing.T) {
+	ok, notes := executionStatus(errors.New("exec format error"), nil)
+
+	assert.False(t, ok)
+	assert.NotEmpty(t, notes)
+}
+
+func TestToSARIF_Invocation(t *testing.T) {
+	ok := toSARIF(nil, true, nil)
+	require.Len(t, ok.Runs[0].Invocations, 1)
+	assert.True(t, ok.Runs[0].Invocations[0].ExecutionSuccessful)
+
+	failed := toSARIF(nil, false, []string{"3 javac errors prevented analysis"})
+	require.Len(t, failed.Runs[0].Invocations, 1)
+	assert.False(t, failed.Runs[0].Invocations[0].ExecutionSuccessful)
+	require.Len(t, failed.Runs[0].Invocations[0].ToolExecutionNotifications, 1)
+	assert.Equal(t, "error", failed.Runs[0].Invocations[0].ToolExecutionNotifications[0].Level)
 }

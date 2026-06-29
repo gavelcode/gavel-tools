@@ -1,5 +1,4 @@
 load("@rules_go//go:def.bzl", "GoLibrary")
-load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load(
     ":common.bzl",
     _collect_dep_submissions = "collect_dep_submissions",
@@ -26,6 +25,14 @@ load(
     _python_pycompile_submission_aspect = "python_pycompile_submission_aspect",
     _python_ruff_submission_aspect = "python_ruff_submission_aspect",
 )
+load(
+    ":java.bzl",
+    _java_archtest_submission_aspect = "java_archtest_submission_aspect",
+    _java_cpd_submission_aspect = "java_cpd_submission_aspect",
+    _java_error_prone_submission_aspect = "java_error_prone_submission_aspect",
+    _java_pmd_submission_aspect = "java_pmd_submission_aspect",
+    _java_spotbugs_submission_aspect = "java_spotbugs_submission_aspect",
+)
 
 rust_clippy_submission_aspect = _rust_clippy_submission_aspect
 
@@ -38,6 +45,16 @@ python_ruff_submission_aspect = _python_ruff_submission_aspect
 python_bandit_submission_aspect = _python_bandit_submission_aspect
 
 python_archtest_submission_aspect = _python_archtest_submission_aspect
+
+java_pmd_submission_aspect = _java_pmd_submission_aspect
+
+java_cpd_submission_aspect = _java_cpd_submission_aspect
+
+java_spotbugs_submission_aspect = _java_spotbugs_submission_aspect
+
+java_error_prone_submission_aspect = _java_error_prone_submission_aspect
+
+java_archtest_submission_aspect = _java_archtest_submission_aspect
 
 # Exposes a Go target's own .go source files so a sibling go_test in the same
 # package can declare them as lint-action inputs. The compiled .x archive
@@ -59,22 +76,12 @@ def _collect_srcs(ctx):
             srcs.extend(src.files.to_list())
     return [src for src in srcs if src.extension == "go"]
 
-def _collect_java_srcs(ctx):
-    srcs = []
-    if hasattr(ctx.rule.attr, "srcs"):
-        for src in ctx.rule.attr.srcs:
-            srcs.extend(src.files.to_list())
-    return [src for src in srcs if src.extension == "java"]
-
 def _collect_typescript_srcs(ctx):
     srcs = []
     if hasattr(ctx.rule.attr, "srcs"):
         for src in ctx.rule.attr.srcs:
             srcs.extend(src.files.to_list())
     return [src for src in srcs if src.extension in ("ts", "tsx")]
-
-def _java_runtime_output_jars(target):
-    return [jar for jar in target[JavaInfo].runtime_output_jars if jar.extension == "jar"]
 
 def _is_go_lint_target(target, ctx):
     if GoLibrary in target:
@@ -179,226 +186,6 @@ go_golangci_lint_submission_aspect = aspect(
     },
 )
 
-def _java_pmd_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if JavaInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_java_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".pmd.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._pmd_sarif,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--pmd",
-            ctx.file._pmd.path,
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelJavaPMDSARIF",
-        progress_message = "Generating PMD submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        tools = [ctx.file._pmd],
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-java_pmd_submission_aspect = aspect(
-    implementation = _java_pmd_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_pmd": attr.label(
-            default = Label("@pmd//:bin/pmd"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_pmd_sarif": attr.label(
-            default = Label("//lint/lang/java/pmd/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _java_cpd_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if JavaInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_java_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".cpd.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._cpd_sarif,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--pmd",
-            ctx.file._pmd.path,
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelJavaCPDSARIF",
-        progress_message = "Generating CPD submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        tools = [ctx.file._pmd],
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-java_cpd_submission_aspect = aspect(
-    implementation = _java_cpd_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_pmd": attr.label(
-            default = Label("@pmd//:bin/pmd"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_cpd_sarif": attr.label(
-            default = Label("//lint/lang/java/cpd/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _java_spotbugs_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if JavaInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    jars = _java_runtime_output_jars(target)
-    if not jars:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".spotbugs.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._spotbugs_sarif,
-        inputs = jars + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--spotbugs",
-            ctx.file._spotbugs.path,
-            "--out",
-            output.path,
-        ] + [jar.path for jar in jars],
-        mnemonic = "GavelJavaSpotBugsSARIF",
-        progress_message = "Generating SpotBugs submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        tools = [ctx.file._spotbugs],
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-java_spotbugs_submission_aspect = aspect(
-    implementation = _java_spotbugs_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_spotbugs": attr.label(
-            default = Label("@spotbugs//:bin/spotbugs"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_spotbugs_sarif": attr.label(
-            default = Label("//lint/lang/java/spotbugs/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _java_error_prone_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if JavaInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_java_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    classpath_jars = target[JavaInfo].transitive_compile_time_jars.to_list()
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".errorprone.sarif")
-
-    classpath_str = ":".join([jar.path for jar in classpath_jars])
-
-    args = [
-        "--error-prone-jar",
-        ctx.file._error_prone_jar.path,
-        "--dataflow-jar",
-        ctx.file._dataflow_jar.path,
-        "--out",
-        output.path,
-    ]
-    if classpath_str:
-        args.extend(["--classpath", classpath_str])
-    args.extend([src.path for src in srcs])
-
-    ctx.actions.run(
-        executable = ctx.executable._error_prone_sarif,
-        inputs = srcs + classpath_jars + [ctx.file._error_prone_jar, ctx.file._dataflow_jar] + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = args,
-        mnemonic = "GavelJavaErrorProneSARIF",
-        progress_message = "Generating Error Prone submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-java_error_prone_submission_aspect = aspect(
-    implementation = _java_error_prone_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_error_prone_jar": attr.label(
-            default = Label("@error_prone//:error_prone.jar"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_dataflow_jar": attr.label(
-            default = Label("@error_prone//:dataflow_errorprone.jar"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_error_prone_sarif": attr.label(
-            default = Label("//lint/lang/java/error_prone/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
 def _typescript_eslint_aspect_impl(target, ctx):
     transitive = _collect_dep_submissions(ctx)
     if ctx.label.workspace_name:
@@ -493,51 +280,6 @@ go_archtest_submission_aspect = aspect(
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_archtest_wrapper": attr.label(
             default = Label("//lint/lang/go/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _java_archtest_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if JavaInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_java_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--config",
-            ".gavel/architecture.yml",
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelJavaArchTest",
-        progress_message = "Checking Java architecture for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-java_archtest_submission_aspect = aspect(
-    implementation = _java_archtest_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/java/archtest/wrapper"),
             executable = True,
             cfg = "exec",
         ),

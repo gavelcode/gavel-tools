@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -28,8 +29,19 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool        sarifTool         `json:"tool"`
+	Results     []sarifResult     `json:"results"`
+	Invocations []sarifInvocation `json:"invocations,omitempty"`
+}
+
+type sarifInvocation struct {
+	ExecutionSuccessful        bool                `json:"executionSuccessful"`
+	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications,omitempty"`
+}
+
+type sarifNotification struct {
+	Level   string       `json:"level"`
+	Message sarifMessage `json:"message"`
 }
 
 type sarifTool struct {
@@ -166,7 +178,7 @@ func run(errorProneJar, dataflowJar, javacPath, out, classpath string, files []s
 	cmd.Stderr = &stderr
 	cmd.Env = os.Environ()
 
-	_ = cmd.Run()
+	runErr := cmd.Run()
 
 	stderrStr := stderr.String()
 	if stderrStr != "" {
@@ -174,7 +186,43 @@ func run(errorProneJar, dataflowJar, javacPath, out, classpath string, files []s
 	}
 
 	findings := parseDiagnostics(stderrStr)
-	return writeSARIF(out, toSARIF(findings))
+	successful, notifications := executionStatus(runErr, detectCompilerErrors(stderrStr))
+	return writeSARIF(out, toSARIF(findings, successful, notifications))
+}
+
+// detectCompilerErrors returns the genuine javac compilation errors in stderr —
+// the ones without an Error Prone [CheckName] tag. Those mean javac could not
+// fully compile the target, so Error Prone analyzed it only partially.
+func detectCompilerErrors(stderr string) []string {
+	var errs []string
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if !strings.Contains(line, ": error:") {
+			continue
+		}
+		if diagnosticPattern.MatchString(line) {
+			continue
+		}
+		errs = append(errs, strings.TrimSpace(line))
+	}
+	return errs
+}
+
+// executionStatus decides whether the Error Prone run can be trusted as
+// complete. A javac that could not be launched, or any compilation error,
+// means the analysis is partial — reported via executionSuccessful=false so a
+// consumer never mistakes a half-run for a clean target.
+func executionStatus(runErr error, compileErrors []string) (bool, []string) {
+	var notes []string
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		notes = append(notes, fmt.Sprintf("Error Prone could not run javac: %v", runErr))
+	}
+	if len(compileErrors) > 0 {
+		notes = append(notes, fmt.Sprintf(
+			"%d javac compilation error(s) prevented complete Error Prone analysis; results are incomplete. First: %s",
+			len(compileErrors), compileErrors[0]))
+	}
+	return len(notes) == 0, notes
 }
 
 func buildJavacArgs(processorpath, classpath, tmpDir, fileList string) []string {
@@ -247,7 +295,7 @@ func javacLevelToSARIF(level string) string {
 	}
 }
 
-func toSARIF(findings []finding) sarifLog {
+func toSARIF(findings []finding, successful bool, notifications []string) sarifLog {
 	rules := make(map[string]sarifRule)
 	results := make([]sarifResult, 0, len(findings))
 
@@ -269,6 +317,14 @@ func toSARIF(findings []finding) sarifLog {
 		})
 	}
 
+	invocation := sarifInvocation{ExecutionSuccessful: successful}
+	for _, note := range notifications {
+		invocation.ToolExecutionNotifications = append(invocation.ToolExecutionNotifications, sarifNotification{
+			Level:   "error",
+			Message: sarifMessage{Text: note},
+		})
+	}
+
 	return sarifLog{
 		Version: "2.1.0",
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
@@ -279,7 +335,8 @@ func toSARIF(findings []finding) sarifLog {
 					Rules: ruleList(rules),
 				},
 			},
-			Results: results,
+			Results:     results,
+			Invocations: []sarifInvocation{invocation},
 		}},
 	}
 }
