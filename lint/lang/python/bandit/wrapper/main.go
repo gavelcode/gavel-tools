@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -66,9 +68,9 @@ func run(pythonPath, sitePackages, out string, files []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = buildEnv(sitePackages)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("bandit: %w", err)
+		return sarif.WriteFailed(out, "bandit", fmt.Sprintf("bandit failed to run: %v", err))
 	}
-	return nil
+	return sarif.MarkSuccessful(out)
 }
 
 func buildArgs(out string, files []string) []string {

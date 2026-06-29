@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -73,9 +75,9 @@ func run(pmd, out string, files []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = commandEnv()
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %v: %w", pmd, args, err)
+		return sarif.WriteFailed(out, "PMD", fmt.Sprintf("PMD failed to run: %v", err))
 	}
-	return nil
+	return sarif.MarkSuccessful(out)
 }
 
 func writeFileList(files []string) (_ string, err error) {

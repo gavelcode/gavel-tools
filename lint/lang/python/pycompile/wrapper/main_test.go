@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,7 +92,7 @@ func TestAnalyze_CleanFile(t *testing.T) {
 	file := filepath.Join(dir, "clean.py")
 	require.NoError(t, os.WriteFile(file, []byte("x = 1\n"), 0o644))
 
-	findings := analyze([]string{file})
+	findings, _ := analyze([]string{file})
 
 	assert.Empty(t, findings)
 }
@@ -103,7 +104,7 @@ func TestAnalyze_FileWithEval(t *testing.T) {
 	file := filepath.Join(dir, "eval.py")
 	require.NoError(t, os.WriteFile(file, []byte("x = eval('1+1')\n"), 0o644))
 
-	findings := analyze([]string{file})
+	findings, _ := analyze([]string{file})
 
 	require.Len(t, findings, 1)
 	assert.Equal(t, "python/builtin-eval", findings[0].RuleID)
@@ -116,9 +117,22 @@ func TestCompileFindings_Clean(t *testing.T) {
 	file := filepath.Join(dir, "clean.py")
 	require.NoError(t, os.WriteFile(file, []byte("x = 1\n"), 0o644))
 
-	findings := compileFindings(file)
+	findings, _ := compileFindings(file)
 
 	assert.Nil(t, findings)
+}
+
+func TestCompileFindings_InterpreterFailure(t *testing.T) {
+	savePythonBinary(t)
+	pythonBinary = "/nonexistent/python3"
+	dir := t.TempDir()
+	file := filepath.Join(dir, "x.py")
+	require.NoError(t, os.WriteFile(file, []byte("x = 1\n"), 0o644))
+
+	findings, failure := compileFindings(file)
+
+	assert.Empty(t, findings)
+	assert.Contains(t, failure, "could not run the interpreter")
 }
 
 func TestCompileFindings_Error(t *testing.T) {
@@ -128,7 +142,7 @@ func TestCompileFindings_Error(t *testing.T) {
 	file := filepath.Join(dir, "bad.py")
 	require.NoError(t, os.WriteFile(file, []byte("invalid"), 0o644))
 
-	findings := compileFindings(file)
+	findings, _ := compileFindings(file)
 
 	require.Len(t, findings, 1)
 	assert.Equal(t, "python/pycompile", findings[0].RuleID)
@@ -203,7 +217,7 @@ func TestWriteSARIF_Success(t *testing.T) {
 		Line:    5,
 	}}
 
-	err := writeSARIF(path, testFindings)
+	err := writeSARIF(path, testFindings, sarif.Successful())
 
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(path)
@@ -221,7 +235,7 @@ func TestWriteSARIF_EmptyFindings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out", "result.sarif")
 
-	err := writeSARIF(path, nil)
+	err := writeSARIF(path, nil, sarif.Successful())
 
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(path)
@@ -233,7 +247,7 @@ func TestWriteSARIF_EmptyFindings(t *testing.T) {
 }
 
 func TestWriteSARIF_MkdirError(t *testing.T) {
-	err := writeSARIF("/dev/null/impossible/out.sarif", nil)
+	err := writeSARIF("/dev/null/impossible/out.sarif", nil, sarif.Successful())
 
 	require.Error(t, err)
 }

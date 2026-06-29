@@ -112,7 +112,10 @@ func TestRun_CommandError(t *testing.T) {
 
 	err := run(pmd, out, 100, []string{"Test.java"})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_CreateXMLOutputError(t *testing.T) {

@@ -10,7 +10,10 @@ go_library(
     ],
     importpath = "github.com/gavelcode/gavel-tools/lint/archtest",
     visibility = ["//visibility:public"],
-    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
+    deps = [
+        "//lint/sarif",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
 )
 
 go_test(

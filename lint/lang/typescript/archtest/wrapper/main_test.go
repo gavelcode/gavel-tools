@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gavelcode/gavel-tools/lint/archtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/gavelcode/gavel-tools/lint/archtest"
 )
 
 func resetFlags(t *testing.T) {
@@ -520,8 +520,10 @@ func TestRun_EvaluateFileError(t *testing.T) {
 
 	err := run(configPath, outPath, []string{srcFile})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "evaluate")
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(outPath)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_WriteSARIFError(t *testing.T) {

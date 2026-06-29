@@ -5,6 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/gavelcode/gavel-tools/lint/lang/java/spotbugs/wrapper",
     visibility = ["//visibility:private"],
+    deps = ["//lint/sarif"],
 )
 
 go_binary(

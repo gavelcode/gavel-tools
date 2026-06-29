@@ -25,11 +25,16 @@ func setArgs(t *testing.T, args []string) {
 	os.Args = args
 }
 
+const fakePmdEmit = `#!/bin/sh
+for a in "$@"; do case "$a" in --report-file=*) o="${a#--report-file=}";; esac; done
+[ -n "$o" ] && printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"PMD"}},"results":[]}]}' > "$o"
+`
+
 func writeFakeScript(t *testing.T, exitCode int) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-pmd")
-	script := fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	script := fakePmdEmit + fmt.Sprintf("exit %d\n", exitCode)
 	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
 	return bin
 }
@@ -95,7 +100,7 @@ func TestRun_PmdNotFound(t *testing.T) {
 func TestRun_PmdFoundInPath(t *testing.T) {
 	tmp := t.TempDir()
 	bin := filepath.Join(tmp, "pmd")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte(fakePmdEmit+"exit 0\n"), 0o755))
 	t.Setenv("PATH", tmp)
 	out := filepath.Join(t.TempDir(), "out", "result.sarif")
 
@@ -110,7 +115,10 @@ func TestRun_CommandError(t *testing.T) {
 
 	err := run(pmd, out, []string{"Test.java"})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestWriteFileList_CreatesFileWithPaths(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gavelcode/gavel-tools/lint/archtest"
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -18,12 +19,12 @@ const (
 )
 
 var (
-	esImportRe  = regexp.MustCompile(`^\s*import\s+(?:type\s+)?(?:\{[^}]*\}|[^{}\s]+)\s+from\s+['"]([^'"]+)['"]`)
-	esImportOnlyRe = regexp.MustCompile(`^\s*import\s+['"]([^'"]+)['"]`)
+	esImportRe            = regexp.MustCompile(`^\s*import\s+(?:type\s+)?(?:\{[^}]*\}|[^{}\s]+)\s+from\s+['"]([^'"]+)['"]`)
+	esImportOnlyRe        = regexp.MustCompile(`^\s*import\s+['"]([^'"]+)['"]`)
 	esImportFromPartialRe = regexp.MustCompile(`^\s*import\s+(?:type\s+)?(?:\{[^}]*)?$`)
-	fromClauseRe = regexp.MustCompile(`.*}\s*from\s+['"]([^'"]+)['"]`)
-	requireRe   = regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`)
-	dynamicImportRe = regexp.MustCompile(`import\(\s*['"]([^'"]+)['"]\s*\)`)
+	fromClauseRe          = regexp.MustCompile(`.*}\s*from\s+['"]([^'"]+)['"]`)
+	requireRe             = regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`)
+	dynamicImportRe       = regexp.MustCompile(`import\(\s*['"]([^'"]+)['"]\s*\)`)
 )
 
 func main() { os.Exit(execute()) }
@@ -66,15 +67,21 @@ func run(configPath, out string, files []string) error {
 	}
 
 	var allViolations []archtest.Violation
+	var failures []string
 	for _, file := range files {
 		violations, err := evaluateFile(file, cfg)
 		if err != nil {
-			return fmt.Errorf("evaluate %s: %w", file, err)
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			continue
 		}
 		allViolations = append(allViolations, violations...)
 	}
 
-	if err := archtest.WriteSARIF(out, "typescript_archtest", allViolations); err != nil {
+	invocation := sarif.Successful()
+	if len(failures) > 0 {
+		invocation = sarif.Failed(failures...)
+	}
+	if err := archtest.WriteSARIFWithInvocation(out, "typescript_archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil

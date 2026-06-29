@@ -26,11 +26,16 @@ func setArgs(t *testing.T, args []string) {
 	os.Args = args
 }
 
+const fakeGolangciEmit = `#!/bin/sh
+for a in "$@"; do case "$a" in --output.sarif.path=*) o="${a#--output.sarif.path=}";; esac; done
+[ -n "$o" ] && printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"golangci-lint"}},"results":[]}]}' > "$o"
+`
+
 func writeFakeScript(t *testing.T, name string, exitCode int) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, name)
-	script := fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	script := fakeGolangciEmit + fmt.Sprintf("exit %d\n", exitCode)
 	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
 	return bin
 }
@@ -127,7 +132,7 @@ func TestRun_LintNotFound(t *testing.T) {
 func TestRun_LintFoundInPath(t *testing.T) {
 	tmp := t.TempDir()
 	bin := filepath.Join(tmp, "golangci-lint")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte(fakeGolangciEmit+"exit 0\n"), 0o755))
 	t.Setenv("PATH", tmp)
 	dir := t.TempDir()
 
@@ -139,10 +144,14 @@ func TestRun_LintFoundInPath(t *testing.T) {
 func TestRun_CommandError(t *testing.T) {
 	lint := writeFakeScript(t, "golangci-lint", 1)
 	dir := t.TempDir()
+	out := filepath.Join(dir, "out.sarif")
 
-	err := run(lint, "", "./pkg", filepath.Join(dir, "out.sarif"), false)
+	err := run(lint, "", "./pkg", out, false)
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_WithConfigFile(t *testing.T) {

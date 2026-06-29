@@ -111,7 +111,10 @@ func TestRun_CommandError(t *testing.T) {
 
 	err := run(sb, out, []string{"app.jar"})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_SpotbugsFoundInPath(t *testing.T) {

@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sarif",
+    srcs = [
+        "report.go",
+        "sarif.go",
+    ],
+    importpath = "github.com/gavelcode/gavel-tools/lint/sarif",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "sarif_test",
+    srcs = [
+        "report_test.go",
+        "sarif_test.go",
+    ],
+    embed = [":sarif"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

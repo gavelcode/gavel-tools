@@ -6,17 +6,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
-	sarifVersion    = "2.1.0"
-	sarifSchema     = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
-	sarifLevel      = "error"
-	dirPermission   = 0o755
-	filePermission  = 0o644
+	sarifVersion   = "2.1.0"
+	sarifSchema    = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
+	sarifLevel     = "error"
+	dirPermission  = 0o755
+	filePermission = 0o644
 )
 
+// WriteSARIF writes a report for a complete (trustworthy) analysis run.
 func WriteSARIF(path, toolName string, violations []Violation) error {
+	return WriteSARIFWithInvocation(path, toolName, violations, sarif.Successful())
+}
+
+// WriteSARIFWithInvocation writes the report carrying an explicit invocation, so
+// a wrapper that could only analyze its inputs partially can record
+// executionSuccessful=false and why, instead of failing silently.
+func WriteSARIFWithInvocation(path, toolName string, violations []Violation, invocation sarif.Invocation) error {
 	rules := collectRuleDescriptors(violations)
 	results := buildResults(violations)
 
@@ -31,7 +41,8 @@ func WriteSARIF(path, toolName string, violations []Violation) error {
 						Rules: rules,
 					},
 				},
-				Results: results,
+				Results:     results,
+				Invocations: []sarif.Invocation{invocation},
 			},
 		},
 	}
@@ -112,8 +123,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool        sarifTool          `json:"tool"`
+	Results     []sarifResult      `json:"results"`
+	Invocations []sarif.Invocation `json:"invocations,omitempty"`
 }
 
 type sarifTool struct {

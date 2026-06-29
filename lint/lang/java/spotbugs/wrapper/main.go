@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 type bugCollection struct {
@@ -39,8 +41,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool        sarifTool          `json:"tool"`
+	Results     []sarifResult      `json:"results"`
+	Invocations []sarif.Invocation `json:"invocations,omitempty"`
 }
 
 type sarifTool struct {
@@ -143,12 +146,12 @@ func run(spotbugs, out string, jars []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %v: %w", spotbugs, args, err)
+		return writeSARIF(out, failedSARIF(fmt.Sprintf("SpotBugs failed to run: %v", err)))
 	}
 
 	doc, err := readXML(xmlPath)
 	if err != nil {
-		return err
+		return writeSARIF(out, failedSARIF(fmt.Sprintf("SpotBugs output could not be parsed: %v", err)))
 	}
 	return writeSARIF(out, toSARIF(doc))
 }
@@ -190,7 +193,22 @@ func toSARIF(doc bugCollection) sarifLog {
 					Rules:   ruleList(rules),
 				},
 			},
-			Results: results,
+			Results:     results,
+			Invocations: []sarif.Invocation{sarif.Successful()},
+		}},
+	}
+}
+
+// failedSARIF reports that SpotBugs could not produce trustworthy results,
+// carrying the concrete reason so a consumer can fix the environment.
+func failedSARIF(reason string) sarifLog {
+	return sarifLog{
+		Version: "2.1.0",
+		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Runs: []sarifRun{{
+			Tool:        sarifTool{Driver: sarifDriver{Name: "SpotBugs"}},
+			Results:     []sarifResult{},
+			Invocations: []sarif.Invocation{sarif.Failed(reason)},
 		}},
 	}
 }

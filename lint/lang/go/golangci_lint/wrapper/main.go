@@ -9,6 +9,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -80,9 +82,9 @@ func run(binary, goBinary, pkg, out string, skipTests bool) (err error) {
 	cmd.Stderr = os.Stderr
 	cmd.Env = commandEnv(cacheDir, goBinary)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %v: %w", binary, args, err)
+		return sarif.WriteFailed(out, "golangci-lint", fmt.Sprintf("golangci-lint failed to run: %v", err))
 	}
-	return nil
+	return sarif.MarkSuccessful(out)
 }
 
 func buildLintArgs(pkg, out string, skipTests bool, configFile string) []string {

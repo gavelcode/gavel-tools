@@ -28,11 +28,17 @@ func setArgs(t *testing.T, args []string) {
 	os.Args = args
 }
 
+const fakeEslintEmit = `#!/bin/sh
+prev=""
+for a in "$@"; do [ "$prev" = "--output-file" ] && o="$a"; prev="$a"; done
+[ -n "$o" ] && printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"eslint"}},"results":[]}]}' > "$o"
+`
+
 func writeFakeEslint(t *testing.T, exitCode int) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-eslint")
-	script := fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	script := fakeEslintEmit + fmt.Sprintf("exit %d\n", exitCode)
 	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
 	return bin
 }
@@ -147,18 +153,6 @@ func TestIsMisconfiguration_ExitCode1(t *testing.T) {
 
 func TestIsMisconfiguration_NonExitError(t *testing.T) {
 	assert.False(t, isMisconfiguration(errors.New("something")))
-}
-
-func TestWriteEmptySARIF(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "empty.sarif")
-
-	err := writeEmptySARIF(path)
-
-	require.NoError(t, err)
-	data, readErr := os.ReadFile(path)
-	require.NoError(t, readErr)
-	assert.Contains(t, string(data), `"version":"2.1.0"`)
-	assert.Contains(t, string(data), `"runs":[]`)
 }
 
 func TestEslintEnv_FiltersAndAdds(t *testing.T) {
@@ -365,7 +359,7 @@ func TestRun_Misconfiguration(t *testing.T) {
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(out)
 	require.NoError(t, readErr)
-	assert.Contains(t, string(data), `"version":"2.1.0"`)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_OtherExitError(t *testing.T) {
@@ -375,7 +369,10 @@ func TestRun_OtherExitError(t *testing.T) {
 
 	err := run(eslint, out, "", []string{src})
 
-	require.Error(t, err)
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestRun_MkdirError(t *testing.T) {
@@ -400,7 +397,7 @@ func TestRun_EslintNotFound(t *testing.T) {
 func TestRun_AbsFallbackWhenGetwdFails(t *testing.T) {
 	tmp := t.TempDir()
 	eslint := filepath.Join(tmp, "fake-eslint")
-	require.NoError(t, os.WriteFile(eslint, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	require.NoError(t, os.WriteFile(eslint, []byte(fakeEslintEmit+"exit 0\n"), 0o755))
 
 	removedDir := filepath.Join(tmp, "removed")
 	require.NoError(t, os.MkdirAll(removedDir, 0o755))
@@ -420,7 +417,7 @@ func TestRun_AbsFallbackWhenGetwdFails(t *testing.T) {
 func TestRun_EslintFoundInPath(t *testing.T) {
 	tmp := t.TempDir()
 	bin := filepath.Join(tmp, "eslint")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	require.NoError(t, os.WriteFile(bin, []byte(fakeEslintEmit+"exit 0\n"), 0o755))
 	t.Setenv("PATH", tmp)
 	out := filepath.Join(t.TempDir(), "out", "result.sarif")
 	src := writeTempFile(t, "app.ts", "const x = 1;")

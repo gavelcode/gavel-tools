@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gavelcode/gavel-tools/lint/archtest"
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -56,15 +57,21 @@ func run(configPath, out string, files []string) error {
 	}
 
 	var allViolations []archtest.Violation
+	var failures []string
 	for _, file := range files {
 		violations, err := evaluateFile(file, cfg)
 		if err != nil {
-			return fmt.Errorf("evaluate %s: %w", file, err)
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			continue
 		}
 		allViolations = append(allViolations, violations...)
 	}
 
-	if err := archtest.WriteSARIF(out, "rust_archtest", allViolations); err != nil {
+	invocation := sarif.Successful()
+	if len(failures) > 0 {
+		invocation = sarif.Failed(failures...)
+	}
+	if err := archtest.WriteSARIFWithInvocation(out, "rust_archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil

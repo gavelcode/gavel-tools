@@ -26,11 +26,17 @@ func setArgs(t *testing.T, args []string) {
 	os.Args = args
 }
 
+const fakeBanditEmit = `#!/bin/sh
+prev=""
+for a in "$@"; do [ "$prev" = "--output" ] && o="$a"; prev="$a"; done
+[ -n "$o" ] && printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"bandit"}},"results":[]}]}' > "$o"
+`
+
 func writeFakeScript(t *testing.T, exitCode int) string {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake-python")
-	script := fmt.Sprintf("#!/bin/sh\nexit %d\n", exitCode)
+	script := fakeBanditEmit + fmt.Sprintf("exit %d\n", exitCode)
 	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
 	return bin
 }
@@ -55,12 +61,14 @@ func TestExecute_MissingFiles(t *testing.T) {
 
 func TestExecute_RunError(t *testing.T) {
 	resetFlags(t)
-	t.Setenv("PATH", t.TempDir())
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif", "file.py"})
+	out := filepath.Join(t.TempDir(), "out.sarif")
+	setArgs(t, []string{"test", "--python", "/nonexistent/python3", "--out", out, "file.py"})
 
 	code := execute()
 
-	assert.Equal(t, 1, code)
+	assert.Equal(t, 0, code)
+	data, _ := os.ReadFile(out)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestExecute_SuccessWithExplicitPython(t *testing.T) {
@@ -182,8 +190,10 @@ func TestRun_CommandError(t *testing.T) {
 
 	err := run(fakePython, "", out, []string{"test.py"})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bandit")
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(out)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"executionSuccessful": false`)
 }
 
 func TestResolveBazelExternal_ExistingPath(t *testing.T) {

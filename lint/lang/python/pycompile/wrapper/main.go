@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 type sarifLog struct {
@@ -20,8 +23,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool        sarifTool          `json:"tool"`
+	Results     []sarifResult      `json:"results"`
+	Invocations []sarif.Invocation `json:"invocations,omitempty"`
 }
 
 type sarifTool struct {
@@ -78,10 +82,10 @@ type finding struct {
 }
 
 const (
-	exitCodeMisuse    = 2
+	exitCodeMisuse     = 2
 	expectedMatchParts = 2
-	dirPermission     = 0o755
-	filePermission    = 0o644
+	dirPermission      = 0o755
+	filePermission     = 0o644
 )
 
 var pythonBinary string
@@ -99,21 +103,30 @@ func execute() int {
 
 	pythonBinary = resolvePython(*python)
 
-	findings := analyze(flag.Args())
-	if err := writeSARIF(*out, findings); err != nil {
+	findings, failures := analyze(flag.Args())
+	invocation := sarif.Successful()
+	if len(failures) > 0 {
+		invocation = sarif.Failed(failures...)
+	}
+	if err := writeSARIF(*out, findings, invocation); err != nil {
 		fmt.Fprintf(os.Stderr, "write SARIF: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func analyze(paths []string) []finding {
+func analyze(paths []string) ([]finding, []string) {
 	findings := make([]finding, 0)
+	var failures []string
 	for _, path := range paths {
-		findings = append(findings, compileFindings(path)...)
+		compiled, failure := compileFindings(path)
+		findings = append(findings, compiled...)
+		if failure != "" {
+			failures = append(failures, failure)
+		}
 		findings = append(findings, evalFindings(path)...)
 	}
-	return findings
+	return findings, failures
 }
 
 func resolvePython(explicit string) string {
@@ -126,12 +139,21 @@ func resolvePython(explicit string) string {
 	return "python3"
 }
 
-func compileFindings(path string) []finding {
+func compileFindings(path string) ([]finding, string) {
 	cmd := exec.Command(pythonBinary, "-m", "py_compile", path)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		return nil
+	err := cmd.Run()
+	if err == nil {
+		return nil, ""
+	}
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		// The interpreter itself could not run — a tool failure, not a user
+		// syntax error — so it must surface as executionSuccessful=false, never
+		// as a finding.
+		return nil, fmt.Sprintf("py_compile could not run the interpreter on %s: %v", path, err)
 	}
 
 	line := parsePythonErrorLine(stderr.String())
@@ -141,7 +163,7 @@ func compileFindings(path string) []finding {
 		Message: strings.TrimSpace(stderr.String()),
 		File:    path,
 		Line:    line,
-	}}
+	}}, ""
 }
 
 func evalFindings(path string) []finding {
@@ -179,7 +201,7 @@ func parsePythonErrorLine(stderr string) int {
 	return line
 }
 
-func writeSARIF(path string, findings []finding) error {
+func writeSARIF(path string, findings []finding, invocation sarif.Invocation) error {
 	results := make([]sarifResult, 0, len(findings))
 	for _, item := range findings {
 		results = append(results, sarifResult{
@@ -214,7 +236,8 @@ func writeSARIF(path string, findings []finding) error {
 					},
 				},
 			}},
-			Results: results,
+			Results:     results,
+			Invocations: []sarif.Invocation{invocation},
 		}},
 	}
 

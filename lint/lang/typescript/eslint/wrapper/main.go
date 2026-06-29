@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 const (
@@ -79,12 +81,13 @@ func run(eslint, out, config string, files []string) error {
 	cmd.Env = eslintEnv(eslint)
 	err = cmd.Run()
 	if err != nil && !isLintExitCode(err) {
+		reason := fmt.Sprintf("eslint failed to run: %v", err)
 		if isMisconfiguration(err) {
-			return writeEmptySARIF(out)
+			reason = fmt.Sprintf("eslint configuration error (exit 2): %v", err)
 		}
-		return fmt.Errorf("%s %v: %w", eslint, args, err)
+		return sarif.WriteFailed(out, "eslint", reason)
 	}
-	return nil
+	return sarif.MarkSuccessful(out)
 }
 
 func buildArgs(out, config string, files []string) []string {
@@ -112,11 +115,6 @@ func isMisconfiguration(err error) bool {
 		return exitErr.ExitCode() == expectedArgCount
 	}
 	return false
-}
-
-func writeEmptySARIF(path string) error {
-	empty := `{"version":"2.1.0","$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json","runs":[]}`
-	return os.WriteFile(path, []byte(empty), filePermission)
 }
 
 func eslintEnv(eslintBin string) []string {

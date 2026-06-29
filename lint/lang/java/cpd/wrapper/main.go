@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 type pmdCPD struct {
@@ -36,8 +38,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool        sarifTool          `json:"tool"`
+	Results     []sarifResult      `json:"results"`
+	Invocations []sarif.Invocation `json:"invocations,omitempty"`
 }
 
 type sarifTool struct {
@@ -154,13 +157,13 @@ func run(pmd, out string, minimumTokens int, files []string) error {
 	cmd.Env = commandEnv()
 	if runErr := cmd.Run(); runErr != nil {
 		_ = xmlOutput.Close()
-		return fmt.Errorf("%s %v: %w", pmd, args, runErr)
+		return writeSARIF(out, failedSARIF(fmt.Sprintf("CPD failed to run: %v", runErr)))
 	}
 	_ = xmlOutput.Close()
 
 	doc, err := readCPDXML(xmlPath)
 	if err != nil {
-		return err
+		return writeSARIF(out, failedSARIF(fmt.Sprintf("CPD output could not be parsed: %v", err)))
 	}
 	return writeSARIF(out, toSARIF(doc))
 }
@@ -197,7 +200,22 @@ func toSARIF(doc pmdCPD) sarifLog {
 					}},
 				},
 			},
-			Results: results,
+			Results:     results,
+			Invocations: []sarif.Invocation{sarif.Successful()},
+		}},
+	}
+}
+
+// failedSARIF reports that CPD could not produce trustworthy results, carrying
+// the concrete reason so a consumer can fix the environment.
+func failedSARIF(reason string) sarifLog {
+	return sarifLog{
+		Version: "2.1.0",
+		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Runs: []sarifRun{{
+			Tool:        sarifTool{Driver: sarifDriver{Name: "CPD"}},
+			Results:     []sarifResult{},
+			Invocations: []sarif.Invocation{sarif.Failed(reason)},
 		}},
 	}
 }

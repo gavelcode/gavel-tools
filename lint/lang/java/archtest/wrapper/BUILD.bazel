@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/gavelcode/gavel-tools/lint/lang/java/archtest/wrapper",
     visibility = ["//visibility:private"],
-    deps = ["//lint/archtest"],
+    deps = [
+        "//lint/archtest",
+        "//lint/sarif",
+    ],
 )
 
 go_binary(
