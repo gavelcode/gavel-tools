@@ -1,7 +1,29 @@
 load("@rules_go//go:def.bzl", "GoLibrary")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load("@rules_python//python:defs.bzl", "PyInfo")
-load("@rules_rust//rust:defs.bzl", _rust_clippy_aspect_upstream = "rust_clippy_aspect")
+load(
+    ":common.bzl",
+    _collect_dep_submissions = "collect_dep_submissions",
+    _empty_output_groups = "empty_output_groups",
+    _lint_config_files = "lint_config_files",
+    _safe_output_name = "safe_output_name",
+    _submission_output_groups = "submission_output_groups",
+)
+
+# Rust aspects live in rust.bzl. They are loaded under private aliases and
+# re-bound to public names below: a bare `load()` symbol is NOT exported for the
+# `defs.bzl%<aspect>` reference, but a top-level assignment is. This keeps the
+# public entry point (in every consumer's .bazelrc) stable as languages move to
+# per-language files.
+load(
+    ":rust.bzl",
+    _rust_archtest_submission_aspect = "rust_archtest_submission_aspect",
+    _rust_clippy_submission_aspect = "rust_clippy_submission_aspect",
+)
+
+rust_clippy_submission_aspect = _rust_clippy_submission_aspect
+
+rust_archtest_submission_aspect = _rust_archtest_submission_aspect
 
 # Exposes a Go target's own .go source files so a sibling go_test in the same
 # package can declare them as lint-action inputs. The compiled .x archive
@@ -15,43 +37,6 @@ GavelGoSrcInfo = provider(
         "package": "the target's package path, used to match siblings",
     },
 )
-
-def _empty_output_groups(transitive):
-    return OutputGroupInfo(
-        gavel_submissions = depset(transitive = transitive),
-    )
-
-def _submission_output_groups(output, transitive):
-    submissions = depset(
-        direct = [output],
-        transitive = transitive,
-    )
-    return OutputGroupInfo(
-        gavel_submissions = submissions,
-    )
-
-def _collect_dep_submissions(ctx):
-    groups = []
-    if hasattr(ctx.rule.attr, "deps"):
-        for dep in ctx.rule.attr.deps:
-            if OutputGroupInfo in dep and hasattr(dep[OutputGroupInfo], "gavel_submissions"):
-                groups.append(dep[OutputGroupInfo].gavel_submissions)
-    if hasattr(ctx.rule.attr, "embed"):
-        for dep in ctx.rule.attr.embed:
-            if OutputGroupInfo in dep and hasattr(dep[OutputGroupInfo], "gavel_submissions"):
-                groups.append(dep[OutputGroupInfo].gavel_submissions)
-    return groups
-
-def _lint_config_files(ctx):
-    if hasattr(ctx.attr, "_lint_config"):
-        return ctx.attr._lint_config.files.to_list()
-    return []
-
-_LINT_CONFIG_ATTR = {
-    "_lint_config": attr.label(
-        default = Label("@@//:gavel_lint_config"),
-    ),
-}
 
 def _collect_srcs(ctx):
     srcs = []
@@ -83,9 +68,6 @@ def _collect_typescript_srcs(ctx):
 
 def _java_runtime_output_jars(target):
     return [jar for jar in target[JavaInfo].runtime_output_jars if jar.extension == "jar"]
-
-def _safe_output_name(label):
-    return (label.package + "_" + label.name).replace("/", "_")
 
 def _is_go_lint_target(target, ctx):
     if GoLibrary in target:
@@ -574,66 +556,6 @@ java_error_prone_submission_aspect = aspect(
     },
 )
 
-def _collect_rust_srcs(ctx):
-    srcs = []
-    if hasattr(ctx.rule.attr, "srcs"):
-        for src in ctx.rule.attr.srcs:
-            srcs.extend(src.files.to_list())
-    return [src for src in srcs if src.extension == "rs"]
-
-def _rust_clippy_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-    if OutputGroupInfo not in target:
-        return [_empty_output_groups(transitive)]
-    og = target[OutputGroupInfo]
-    if not hasattr(og, "clippy_output"):
-        if not hasattr(og, "clippy_checks"):
-            return [_empty_output_groups(transitive)]
-        clippy_files = og.clippy_checks.to_list()
-        if not clippy_files:
-            return [_empty_output_groups(transitive)]
-        diagnostics_file = clippy_files[0]
-    else:
-        diag_files = og.clippy_output.to_list()
-        if not diag_files:
-            return [_empty_output_groups(transitive)]
-        diagnostics_file = diag_files[0]
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".clippy.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._clippy_converter,
-        inputs = [diagnostics_file],
-        outputs = [output],
-        arguments = [
-            "--in",
-            diagnostics_file.path,
-            "--out",
-            output.path,
-        ],
-        mnemonic = "GavelRustClippySARIF",
-        progress_message = "Converting Clippy output to SARIF for %s" % ctx.label,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-rust_clippy_submission_aspect = aspect(
-    implementation = _rust_clippy_aspect_impl,
-    requires = [_rust_clippy_aspect_upstream],
-    attr_aspects = [
-        "deps",
-        "proc_macro_deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_clippy_converter": attr.label(
-            default = Label("//lint/lang/rust/clippy/converter/cmd:converter"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
 def _typescript_eslint_aspect_impl(target, ctx):
     transitive = _collect_dep_submissions(ctx)
     if ctx.label.workspace_name:
@@ -818,50 +740,6 @@ python_archtest_submission_aspect = aspect(
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_archtest_wrapper": attr.label(
             default = Label("//lint/lang/python/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _rust_archtest_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_rust_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--config",
-            ".gavel/architecture.yml",
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelRustArchTest",
-        progress_message = "Checking Rust architecture for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-rust_archtest_submission_aspect = aspect(
-    implementation = _rust_archtest_aspect_impl,
-    attr_aspects = [
-        "deps",
-        "proc_macro_deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/rust/archtest/wrapper"),
             executable = True,
             cfg = "exec",
         ),
