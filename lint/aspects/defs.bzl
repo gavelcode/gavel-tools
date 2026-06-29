@@ -1,6 +1,5 @@
 load("@rules_go//go:def.bzl", "GoLibrary")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
-load("@rules_python//python:defs.bzl", "PyInfo")
 load(
     ":common.bzl",
     _collect_dep_submissions = "collect_dep_submissions",
@@ -10,20 +9,35 @@ load(
     _submission_output_groups = "submission_output_groups",
 )
 
-# Rust aspects live in rust.bzl. They are loaded under private aliases and
-# re-bound to public names below: a bare `load()` symbol is NOT exported for the
-# `defs.bzl%<aspect>` reference, but a top-level assignment is. This keeps the
-# public entry point (in every consumer's .bazelrc) stable as languages move to
-# per-language files.
+# Per-language aspects live in <lang>.bzl. They are loaded under private aliases
+# and re-bound to public names below: a bare `load()` symbol is NOT exported for
+# the `defs.bzl%<aspect>` reference, but a top-level assignment is. This keeps
+# the public entry points (in every consumer's .bazelrc) stable as languages
+# move to per-language files.
 load(
     ":rust.bzl",
     _rust_archtest_submission_aspect = "rust_archtest_submission_aspect",
     _rust_clippy_submission_aspect = "rust_clippy_submission_aspect",
 )
+load(
+    ":python.bzl",
+    _python_archtest_submission_aspect = "python_archtest_submission_aspect",
+    _python_bandit_submission_aspect = "python_bandit_submission_aspect",
+    _python_pycompile_submission_aspect = "python_pycompile_submission_aspect",
+    _python_ruff_submission_aspect = "python_ruff_submission_aspect",
+)
 
 rust_clippy_submission_aspect = _rust_clippy_submission_aspect
 
 rust_archtest_submission_aspect = _rust_archtest_submission_aspect
+
+python_pycompile_submission_aspect = _python_pycompile_submission_aspect
+
+python_ruff_submission_aspect = _python_ruff_submission_aspect
+
+python_bandit_submission_aspect = _python_bandit_submission_aspect
+
+python_archtest_submission_aspect = _python_archtest_submission_aspect
 
 # Exposes a Go target's own .go source files so a sibling go_test in the same
 # package can declare them as lint-action inputs. The compiled .x archive
@@ -51,13 +65,6 @@ def _collect_java_srcs(ctx):
         for src in ctx.rule.attr.srcs:
             srcs.extend(src.files.to_list())
     return [src for src in srcs if src.extension == "java"]
-
-def _collect_python_srcs(ctx):
-    srcs = []
-    if hasattr(ctx.rule.attr, "srcs"):
-        for src in ctx.rule.attr.srcs:
-            srcs.extend(src.files.to_list())
-    return [src for src in srcs if src.extension == "py"]
 
 def _collect_typescript_srcs(ctx):
     srcs = []
@@ -325,170 +332,6 @@ java_spotbugs_submission_aspect = aspect(
     },
 )
 
-def _python_pycompile_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if PyInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_python_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".pycompile.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._python_pycompile_sarif,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelPythonPyCompileSARIF",
-        progress_message = "Generating Python py_compile submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-python_pycompile_submission_aspect = aspect(
-    implementation = _python_pycompile_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_python_pycompile_sarif": attr.label(
-            default = Label("//lint/lang/python/pycompile/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _python_ruff_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if PyInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_python_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".ruff.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._ruff_sarif,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--ruff",
-            ctx.file._ruff.path,
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelPythonRuffSARIF",
-        progress_message = "Generating Ruff submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        tools = [ctx.file._ruff],
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-python_ruff_submission_aspect = aspect(
-    implementation = _python_ruff_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_ruff": attr.label(
-            default = Label("@ruff//:ruff"),
-            allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_ruff_sarif": attr.label(
-            default = Label("//lint/lang/python/ruff/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _python_bandit_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if PyInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_python_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    site_packages = ctx.attr._bandit_packages.files.to_list()
-    site_packages_dir = site_packages[0].path.split("/site-packages/")[0] + "/site-packages" if site_packages else ""
-
-    # Bandit (via stevedore) needs Python 3.10+, so run it under the hermetic
-    # interpreter from the consumer's rules_python toolchain rather than
-    # whatever python3 happens to be on PATH.
-    runtime = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime
-    interpreter_inputs = []
-    interpreter_transitive = []
-    if runtime.interpreter:
-        python_path = runtime.interpreter.path
-        interpreter_inputs = [runtime.interpreter]
-        interpreter_transitive = [runtime.files]
-    else:
-        python_path = runtime.interpreter_path
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".bandit.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._bandit_sarif,
-        inputs = depset(
-            direct = srcs + site_packages + _lint_config_files(ctx) + interpreter_inputs,
-            transitive = interpreter_transitive,
-        ),
-        outputs = [output],
-        arguments = [
-            "--python",
-            python_path,
-            "--site-packages",
-            site_packages_dir,
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelPythonBanditSARIF",
-        progress_message = "Generating Bandit submission for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-python_bandit_submission_aspect = aspect(
-    implementation = _python_bandit_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    toolchains = ["@rules_python//python:toolchain_type"],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_bandit_packages": attr.label(
-            default = Label("@bandit//:site_packages"),
-        ),
-        "_bandit_sarif": attr.label(
-            default = Label("//lint/lang/python/bandit/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
 def _java_error_prone_aspect_impl(target, ctx):
     transitive = _collect_dep_submissions(ctx)
     if JavaInfo not in target:
@@ -695,51 +538,6 @@ java_archtest_submission_aspect = aspect(
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_archtest_wrapper": attr.label(
             default = Label("//lint/lang/java/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
-    },
-)
-
-def _python_archtest_aspect_impl(target, ctx):
-    transitive = _collect_dep_submissions(ctx)
-    if PyInfo not in target:
-        return [_empty_output_groups(transitive)]
-    if ctx.label.workspace_name:
-        return [_empty_output_groups(transitive)]
-
-    srcs = _collect_python_srcs(ctx)
-    if not srcs:
-        return [_empty_output_groups(transitive)]
-
-    output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
-    ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
-        inputs = srcs + _lint_config_files(ctx),
-        outputs = [output],
-        arguments = [
-            "--config",
-            ".gavel/architecture.yml",
-            "--out",
-            output.path,
-        ] + [src.path for src in srcs],
-        mnemonic = "GavelPythonArchTest",
-        progress_message = "Checking Python architecture for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
-    )
-
-    return [_submission_output_groups(output, transitive)]
-
-python_archtest_submission_aspect = aspect(
-    implementation = _python_archtest_aspect_impl,
-    attr_aspects = [
-        "deps",
-    ],
-    attrs = {
-        "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/python/archtest/wrapper"),
             executable = True,
             cfg = "exec",
         ),
