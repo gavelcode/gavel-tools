@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
 type finding struct {
@@ -29,19 +31,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool        sarifTool         `json:"tool"`
-	Results     []sarifResult     `json:"results"`
-	Invocations []sarifInvocation `json:"invocations,omitempty"`
-}
-
-type sarifInvocation struct {
-	ExecutionSuccessful        bool                `json:"executionSuccessful"`
-	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications,omitempty"`
-}
-
-type sarifNotification struct {
-	Level   string       `json:"level"`
-	Message sarifMessage `json:"message"`
+	Tool        sarifTool          `json:"tool"`
+	Results     []sarifResult      `json:"results"`
+	Invocations []sarif.Invocation `json:"invocations,omitempty"`
 }
 
 type sarifTool struct {
@@ -317,12 +309,9 @@ func toSARIF(findings []finding, successful bool, notifications []string) sarifL
 		})
 	}
 
-	invocation := sarifInvocation{ExecutionSuccessful: successful}
-	for _, note := range notifications {
-		invocation.ToolExecutionNotifications = append(invocation.ToolExecutionNotifications, sarifNotification{
-			Level:   "error",
-			Message: sarifMessage{Text: note},
-		})
+	invocation := sarif.Successful()
+	if !successful {
+		invocation = sarif.Failed(notifications...)
 	}
 
 	return sarifLog{
@@ -336,7 +325,7 @@ func toSARIF(findings []finding, successful bool, notifications []string) sarifL
 				},
 			},
 			Results:     results,
-			Invocations: []sarifInvocation{invocation},
+			Invocations: []sarif.Invocation{invocation},
 		}},
 	}
 }
