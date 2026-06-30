@@ -104,9 +104,9 @@ func toSARIF(files []eslintFile) sarifReport {
 	rules := []sarifRule{}
 	results := []sarifResult{}
 
-	for _, file := range files {
-		for _, msg := range file.Messages {
-			ruleID := msg.RuleID
+	for _, fileResult := range files {
+		for _, lintMessage := range fileResult.Messages {
+			ruleID := lintMessage.RuleID
 			if ruleID == "" {
 				ruleID = fallbackRuleID
 			}
@@ -116,16 +116,16 @@ func toSARIF(files []eslintFile) sarifReport {
 			}
 			results = append(results, sarifResult{
 				RuleID:  ruleID,
-				Level:   level(msg.Severity),
-				Message: sarifMessage{Text: msg.Message},
+				Level:   level(lintMessage.Severity),
+				Message: sarifMessage{Text: lintMessage.Message},
 				Locations: []sarifLocation{{
 					PhysicalLocation: sarifPhysicalLocation{
-						ArtifactLocation: sarifArtifact{URI: toURI(file.FilePath)},
+						ArtifactLocation: sarifArtifact{URI: toURI(fileResult.FilePath)},
 						Region: sarifRegion{
-							StartLine:   msg.Line,
-							StartColumn: msg.Column,
-							EndLine:     msg.EndLine,
-							EndColumn:   msg.EndColumn,
+							StartLine:   lintMessage.Line,
+							StartColumn: lintMessage.Column,
+							EndLine:     lintMessage.EndLine,
+							EndColumn:   lintMessage.EndColumn,
 						},
 					},
 				}},

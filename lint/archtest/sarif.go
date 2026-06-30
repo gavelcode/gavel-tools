@@ -21,11 +21,11 @@ const (
 // WriteSARIFWithInvocation writes the report carrying an explicit invocation, so
 // a wrapper that could only analyze its inputs partially can record
 // executionSuccessful=false and why, instead of failing silently.
-func WriteSARIFWithInvocation(path, toolName string, violations []Violation, invocation sarif.Invocation) error {
+func WriteSARIFWithInvocation(reportPath, toolName string, violations []Violation, invocation sarif.Invocation) error {
 	rules := collectRuleDescriptors(violations)
 	results := buildResults(violations)
 
-	doc := sarifLog{
+	document := sarifLog{
 		Schema:  sarifSchema,
 		Version: sarifVersion,
 		Runs: []sarifRun{
@@ -42,16 +42,16 @@ func WriteSARIFWithInvocation(path, toolName string, violations []Violation, inv
 		},
 	}
 
-	data, err := json.MarshalIndent(doc, "", "  ")
+	sarifBytes, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal SARIF: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), dirPermission); err != nil {
+	if err := os.MkdirAll(filepath.Dir(reportPath), dirPermission); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, filePermission); err != nil {
+	if err := os.WriteFile(reportPath, sarifBytes, filePermission); err != nil {
 		return fmt.Errorf("write SARIF: %w", err)
 	}
 
@@ -59,13 +59,13 @@ func WriteSARIFWithInvocation(path, toolName string, violations []Violation, inv
 }
 
 func collectRuleDescriptors(violations []Violation) []sarifRuleDescriptor {
-	seen := make(map[string]bool)
+	seenRules := make(map[string]bool)
 	var rules []sarifRuleDescriptor
 	for _, violation := range violations {
-		if seen[violation.RuleName] {
+		if seenRules[violation.RuleName] {
 			continue
 		}
-		seen[violation.RuleName] = true
+		seenRules[violation.RuleName] = true
 		rules = append(rules, sarifRuleDescriptor{
 			ID:                   violation.RuleName,
 			DefaultConfiguration: sarifConfiguration{Level: sarifLevel},

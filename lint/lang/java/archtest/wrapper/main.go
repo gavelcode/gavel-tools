@@ -22,14 +22,14 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
 		return missingArgCode
 	}
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
@@ -40,29 +40,29 @@ func execute() int {
 		return missingArgCode
 	}
 
-	if err := run(*config, *out, files); err != nil {
+	if err := run(*config, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(configPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	cfg, err := archtest.LoadConfig(configPath)
+	config, err := archtest.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	var allViolations []archtest.Violation
 	var failures []string
-	for _, file := range files {
-		violations, err := evaluateFile(file, cfg)
+	for _, sourceFile := range files {
+		violations, err := evaluateFile(sourceFile, config)
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
 		}
 		allViolations = append(allViolations, violations...)
@@ -72,27 +72,27 @@ func run(configPath, out string, files []string) error {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := archtest.WriteSARIFWithInvocation(out, "gavel-archtest-java", allViolations, invocation); err != nil {
+	if err := archtest.WriteSARIFWithInvocation(outputPath, "gavel-archtest-java", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
-func evaluateFile(file string, cfg archtest.Config) ([]archtest.Violation, error) {
-	dirPath := filepath.Dir(file)
-	layer := archtest.MatchLayer(dirPath, cfg.Layers)
+func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violation, error) {
+	dirPath := filepath.Dir(sourceFile)
+	layer := archtest.MatchLayer(dirPath, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parseJavaImports(file)
+	imports, err := parseJavaImports(sourceFile)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved := resolveImportPaths(imports, file)
+	resolved := resolveImportPaths(imports, sourceFile)
 
-	return archtest.Evaluate(file, layer, resolved, cfg.Layers, cfg.Rules), nil
+	return archtest.Evaluate(sourceFile, layer, resolved, config.Layers, config.Rules), nil
 }
 
 func resolveImportPaths(imports []archtest.Import, sourceFile string) []archtest.Import {
@@ -153,57 +153,11 @@ func parseJavaImports(filePath string) (_ []archtest.Import, err error) {
 
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if inBlockComment {
-			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
-				inBlockComment = false
-				trimmed = strings.TrimSpace(trimmed[idx+2:])
-				if trimmed == "" {
-					continue
-				}
-			} else {
-				continue
-			}
-		}
-
-		trimmed = stripInlineBlockComments(trimmed)
-
-		if strings.HasPrefix(trimmed, "//") || trimmed == "" {
+		trimmed, skip := cleanJavaCommentLine(strings.TrimSpace(scanner.Text()), &inBlockComment)
+		if skip {
 			continue
 		}
-
-		if strings.Contains(trimmed, "/*") {
-			commentStart := strings.Index(trimmed, "/*")
-			if !strings.Contains(trimmed[commentStart:], "*/") {
-				inBlockComment = true
-				trimmed = strings.TrimSpace(trimmed[:commentStart])
-				if trimmed == "" {
-					continue
-				}
-			}
-		}
-
-		if strings.HasPrefix(trimmed, "package ") {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "import ") {
-			pastPreamble = true
-			raw := strings.TrimPrefix(trimmed, "import ")
-			raw = strings.TrimPrefix(raw, "static ")
-			raw = strings.TrimSuffix(raw, ";")
-			raw = strings.TrimSpace(raw)
-
-			pkgPath := javaImportToPackagePath(raw)
-			if pkgPath != "" {
-				imports = append(imports, archtest.Import{Path: pkgPath, Line: lineNum})
-			}
-			continue
-		}
-
-		if pastPreamble || isJavaDeclaration(trimmed) {
+		if collectJavaImport(trimmed, lineNum, &pastPreamble, &imports) {
 			break
 		}
 	}
@@ -215,30 +169,83 @@ func parseJavaImports(filePath string) (_ []archtest.Import, err error) {
 	return imports, nil
 }
 
-func isJavaDeclaration(line string) bool {
+// collectJavaImport records an import line and reports whether the preamble has
+// ended (a type declaration or a body line after the imports), so the caller
+// stops scanning.
+func collectJavaImport(trimmed string, lineNum int, pastPreamble *bool, imports *[]archtest.Import) bool {
+	if strings.HasPrefix(trimmed, "package ") {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "import ") {
+		*pastPreamble = true
+		addJavaImport(trimmed, lineNum, imports)
+		return false
+	}
+	return *pastPreamble || isJavaDeclaration(trimmed)
+}
+
+// cleanJavaCommentLine advances the block-comment state and strips comments,
+// returning the code left on the line and whether the caller should skip it.
+func cleanJavaCommentLine(trimmed string, inBlockComment *bool) (string, bool) {
+	if *inBlockComment {
+		idx := strings.Index(trimmed, "*/")
+		if idx < 0 {
+			return "", true
+		}
+		*inBlockComment = false
+		trimmed = strings.TrimSpace(trimmed[idx+2:])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	trimmed = stripInlineBlockComments(trimmed)
+	if strings.HasPrefix(trimmed, "//") || trimmed == "" {
+		return "", true
+	}
+	if commentStart := strings.Index(trimmed, "/*"); commentStart >= 0 && !strings.Contains(trimmed[commentStart:], "*/") {
+		*inBlockComment = true
+		trimmed = strings.TrimSpace(trimmed[:commentStart])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	return trimmed, false
+}
+
+func addJavaImport(trimmed string, lineNum int, imports *[]archtest.Import) {
+	raw := strings.TrimPrefix(trimmed, "import ")
+	raw = strings.TrimPrefix(raw, "static ")
+	raw = strings.TrimSuffix(raw, ";")
+	raw = strings.TrimSpace(raw)
+	if pkgPath := javaImportToPackagePath(raw); pkgPath != "" {
+		*imports = append(*imports, archtest.Import{Path: pkgPath, Line: lineNum})
+	}
+}
+
+func isJavaDeclaration(lineText string) bool {
 	declarationPrefixes := []string{
 		"public ", "private ", "protected ",
 		"class ", "interface ", "enum ", "record ",
 		"abstract ", "final ", "@",
 	}
 	for _, prefix := range declarationPrefixes {
-		if strings.HasPrefix(line, prefix) {
+		if strings.HasPrefix(lineText, prefix) {
 			return true
 		}
 	}
 	return false
 }
 
-func stripInlineBlockComments(line string) string {
+func stripInlineBlockComments(lineText string) string {
 	for {
-		start := strings.Index(line, "/*")
+		start := strings.Index(lineText, "/*")
 		if start < 0 {
-			return line
+			return lineText
 		}
-		end := strings.Index(line[start+2:], "*/")
+		end := strings.Index(lineText[start+2:], "*/")
 		if end < 0 {
-			return line
+			return lineText
 		}
-		line = line[:start] + line[start+2+end+2:]
+		lineText = lineText[:start] + lineText[start+2+end+2:]
 	}
 }

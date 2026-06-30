@@ -31,14 +31,14 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
 		return expectedArgCount
 	}
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return expectedArgCount
 	}
@@ -49,29 +49,29 @@ func execute() int {
 		return expectedArgCount
 	}
 
-	if err := run(*config, *out, files); err != nil {
+	if err := run(*config, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run typescript archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(configPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	cfg, err := archtest.LoadConfig(configPath)
+	config, err := archtest.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	var allViolations []archtest.Violation
 	var failures []string
-	for _, file := range files {
-		violations, err := evaluateFile(file, cfg)
+	for _, sourceFile := range files {
+		violations, err := evaluateFile(sourceFile, config)
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
 		}
 		allViolations = append(allViolations, violations...)
@@ -81,25 +81,25 @@ func run(configPath, out string, files []string) error {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := archtest.WriteSARIFWithInvocation(out, "typescript_archtest", allViolations, invocation); err != nil {
+	if err := archtest.WriteSARIFWithInvocation(outputPath, "typescript_archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
-func evaluateFile(file string, cfg archtest.Config) ([]archtest.Violation, error) {
-	pkgDir := filepath.Dir(file)
-	layer := archtest.MatchLayer(pkgDir, cfg.Layers)
+func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violation, error) {
+	pkgDir := filepath.Dir(sourceFile)
+	layer := archtest.MatchLayer(pkgDir, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parseTypeScriptImports(file)
+	imports, err := parseTypeScriptImports(sourceFile)
 	if err != nil {
 		return nil, err
 	}
 
-	return archtest.Evaluate(file, layer, imports, cfg.Layers, cfg.Rules), nil
+	return archtest.Evaluate(sourceFile, layer, imports, config.Layers, config.Rules), nil
 }
 
 func parseTypeScriptImports(filePath string) (_ []archtest.Import, err error) {
@@ -123,84 +123,74 @@ func parseTypeScriptImports(filePath string) (_ []archtest.Import, err error) {
 
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if inBlockComment {
-			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
-				inBlockComment = false
-				trimmed = strings.TrimSpace(trimmed[idx+2:])
-				if trimmed == "" {
-					continue
-				}
-			} else {
-				continue
-			}
-		}
-
-		trimmed = stripTSBlockComments(trimmed)
-
-		if strings.HasPrefix(trimmed, "//") {
+		trimmed, skip := cleanTSCommentLine(strings.TrimSpace(scanner.Text()), &inBlockComment)
+		if skip {
 			continue
 		}
-
-		if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
-			inBlockComment = true
-			trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
-			if trimmed == "" {
-				continue
-			}
-		}
-
 		if inMultiLineImport {
 			if m := fromClauseRe.FindStringSubmatch(trimmed); m != nil {
 				inMultiLineImport = false
-				if imp, ok := resolveRelativeImport(m[1], fileDir); ok {
-					imports = append(imports, archtest.Import{Path: imp, Line: multiLineStartLine})
-				}
+				addTSImport(m[1], fileDir, multiLineStartLine, &imports)
 			}
 			continue
 		}
-
-		if m := esImportRe.FindStringSubmatch(trimmed); m != nil {
-			if imp, ok := resolveRelativeImport(m[1], fileDir); ok {
-				imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-			}
-			continue
-		}
-
-		if m := esImportOnlyRe.FindStringSubmatch(trimmed); m != nil {
-			if imp, ok := resolveRelativeImport(m[1], fileDir); ok {
-				imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-			}
-			continue
-		}
-
 		if esImportFromPartialRe.MatchString(trimmed) {
 			inMultiLineImport = true
 			multiLineStartLine = lineNum
 			continue
 		}
-
-		if m := requireRe.FindStringSubmatch(trimmed); m != nil {
-			if imp, ok := resolveRelativeImport(m[1], fileDir); ok {
-				imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-			}
-			continue
-		}
-
-		if m := dynamicImportRe.FindStringSubmatch(trimmed); m != nil {
-			if imp, ok := resolveRelativeImport(m[1], fileDir); ok {
-				imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-			}
-			continue
-		}
+		matchTSImport(trimmed, fileDir, lineNum, &imports)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan %s: %w", filePath, err)
 	}
 	return imports, nil
+}
+
+// cleanTSCommentLine advances the block-comment state and strips comments,
+// returning the code left on the line and whether the caller should skip it.
+func cleanTSCommentLine(trimmed string, inBlockComment *bool) (string, bool) {
+	if *inBlockComment {
+		idx := strings.Index(trimmed, "*/")
+		if idx < 0 {
+			return "", true
+		}
+		*inBlockComment = false
+		trimmed = strings.TrimSpace(trimmed[idx+2:])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	trimmed = stripTSBlockComments(trimmed)
+	if strings.HasPrefix(trimmed, "//") {
+		return "", true
+	}
+	if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
+		*inBlockComment = true
+		trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	return trimmed, false
+}
+
+// matchTSImport records the import path from the first single-line import form
+// (es import, require, dynamic import) that the line matches, if any.
+func matchTSImport(trimmed, fileDir string, lineNum int, imports *[]archtest.Import) {
+	for _, importRe := range []*regexp.Regexp{esImportRe, esImportOnlyRe, requireRe, dynamicImportRe} {
+		if m := importRe.FindStringSubmatch(trimmed); m != nil {
+			addTSImport(m[1], fileDir, lineNum, imports)
+			return
+		}
+	}
+}
+
+func addTSImport(spec, fileDir string, lineNum int, imports *[]archtest.Import) {
+	if imp, ok := resolveRelativeImport(spec, fileDir); ok {
+		*imports = append(*imports, archtest.Import{Path: imp, Line: lineNum})
+	}
 }
 
 func resolveRelativeImport(importPath, fileDir string) (string, bool) {
@@ -212,16 +202,16 @@ func resolveRelativeImport(importPath, fileDir string) (string, bool) {
 	return filepath.ToSlash(resolved), true
 }
 
-func stripTSBlockComments(line string) string {
+func stripTSBlockComments(lineText string) string {
 	for {
-		start := strings.Index(line, "/*")
+		start := strings.Index(lineText, "/*")
 		if start < 0 {
-			return line
+			return lineText
 		}
-		end := strings.Index(line[start+2:], "*/")
+		end := strings.Index(lineText[start+2:], "*/")
 		if end < 0 {
-			return line
+			return lineText
 		}
-		line = line[:start] + line[start+2+end+2:]
+		lineText = lineText[:start] + lineText[start+2+end+2:]
 	}
 }

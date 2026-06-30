@@ -51,73 +51,73 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func parseConfig(data []byte) (Config, error) {
-	var dto configDTO
-	if err := yaml.Unmarshal(data, &dto); err != nil {
+	var parsedConfig configDTO
+	if err := yaml.Unmarshal(data, &parsedConfig); err != nil {
 		return Config{}, fmt.Errorf("parse YAML: %w", err)
 	}
 
-	if len(dto.Layers) == 0 {
+	if len(parsedConfig.Layers) == 0 {
 		return Config{}, fmt.Errorf("%w: at least one layer is required", ErrInvalidConfig)
 	}
 
-	if isV1(dto) {
-		return buildV1Config(dto)
+	if isV1(parsedConfig) {
+		return buildV1Config(parsedConfig)
 	}
 
-	return buildV2Config(dto)
+	return buildV2Config(parsedConfig)
 }
 
-func isV1(dto configDTO) bool {
-	return dto.Version == 1 && dto.Module != ""
+func isV1(parsedConfig configDTO) bool {
+	return parsedConfig.Version == 1 && parsedConfig.Module != ""
 }
 
-func buildV1Config(dto configDTO) (Config, error) {
-	rules := make([]Rule, 0, len(dto.Rules))
-	for _, ruleDTO := range dto.Rules {
-		if err := validateRuleReferences(ruleDTO, dto.Layers); err != nil {
+func buildV1Config(parsedConfig configDTO) (Config, error) {
+	rules := make([]Rule, 0, len(parsedConfig.Rules))
+	for _, ruleEntry := range parsedConfig.Rules {
+		if err := validateRuleReferences(ruleEntry, parsedConfig.Layers); err != nil {
 			return Config{}, err
 		}
 		rules = append(rules, Rule{
-			Name:   ruleDTO.Name,
-			Source: ruleDTO.Source,
-			Deny:   append([]string{}, ruleDTO.Deny...),
+			Name:   ruleEntry.Name,
+			Source: ruleEntry.Source,
+			Deny:   append([]string{}, ruleEntry.Deny...),
 		})
 	}
 
 	return Config{
-		Layers:       copyLayers(dto.Layers),
+		Layers:       copyLayers(parsedConfig.Layers),
 		Rules:        rules,
-		DetectCycles: dto.Generic.NoCyclicalDeps,
+		DetectCycles: parsedConfig.Generic.NoCyclicalDeps,
 	}, nil
 }
 
-func buildV2Config(dto configDTO) (Config, error) {
-	rules := make([]Rule, 0, len(dto.Rules))
-	for _, ruleDTO := range dto.Rules {
-		if err := validateRuleReferences(ruleDTO, dto.Layers); err != nil {
+func buildV2Config(parsedConfig configDTO) (Config, error) {
+	rules := make([]Rule, 0, len(parsedConfig.Rules))
+	for _, ruleEntry := range parsedConfig.Rules {
+		if err := validateRuleReferences(ruleEntry, parsedConfig.Layers); err != nil {
 			return Config{}, err
 		}
 		rules = append(rules, Rule{
-			Name:   ruleDTO.Name,
-			Source: ruleDTO.Source,
-			Deny:   append([]string{}, ruleDTO.Deny...),
+			Name:   ruleEntry.Name,
+			Source: ruleEntry.Source,
+			Deny:   append([]string{}, ruleEntry.Deny...),
 		})
 	}
 
 	return Config{
-		Layers:       copyLayers(dto.Layers),
+		Layers:       copyLayers(parsedConfig.Layers),
 		Rules:        rules,
-		DetectCycles: dto.DetectCycles,
+		DetectCycles: parsedConfig.DetectCycles,
 	}, nil
 }
 
-func validateRuleReferences(rule ruleDTO, layers map[string][]string) error {
-	if _, ok := layers[rule.Source]; !ok {
-		return fmt.Errorf("%w: rule %q references undefined source layer %q", ErrInvalidConfig, rule.Name, rule.Source)
+func validateRuleReferences(ruleEntry ruleDTO, layers map[string][]string) error {
+	if _, ok := layers[ruleEntry.Source]; !ok {
+		return fmt.Errorf("%w: rule %q references undefined source layer %q", ErrInvalidConfig, ruleEntry.Name, ruleEntry.Source)
 	}
-	for _, deny := range rule.Deny {
+	for _, deny := range ruleEntry.Deny {
 		if _, ok := layers[deny]; !ok {
-			return fmt.Errorf("%w: rule %q references undefined deny layer %q", ErrInvalidConfig, rule.Name, deny)
+			return fmt.Errorf("%w: rule %q references undefined deny layer %q", ErrInvalidConfig, ruleEntry.Name, deny)
 		}
 	}
 	return nil

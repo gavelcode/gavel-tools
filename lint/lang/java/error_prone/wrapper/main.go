@@ -104,11 +104,11 @@ func execute() int {
 	errorProneJar := flag.String("error-prone-jar", "", "Path to error_prone_core-with-dependencies.jar")
 	dataflowJar := flag.String("dataflow-jar", "", "Path to dataflow-errorprone.jar")
 	javacFlag := flag.String("javac", "", "Path to the javac binary")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	classpath := flag.String("classpath", "", "Compilation classpath (colon-separated)")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
@@ -118,15 +118,15 @@ func execute() int {
 		return missingArgCode
 	}
 
-	if err := run(*errorProneJar, *dataflowJar, *javacFlag, *out, *classpath, files); err != nil {
+	if err := run(*errorProneJar, *dataflowJar, *javacFlag, *outputPath, *classpath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run error-prone: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(errorProneJar, dataflowJar, javacPath, out, classpath string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(errorProneJar, dataflowJar, javacPath, outputPath, classpath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -163,14 +163,14 @@ func run(errorProneJar, dataflowJar, javacPath, out, classpath string, files []s
 		processorpath = errorProneJar + ":" + dataflowJar
 	}
 
-	args := buildJavacArgs(processorpath, classpath, tmpDir, fileList)
-	cmd := exec.Command(javac, args...)
+	arguments := buildJavacArgs(processorpath, classpath, tmpDir, fileList)
+	command := exec.Command(javac, arguments...)
 	var stderr bytes.Buffer
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = &stderr
-	cmd.Env = os.Environ()
+	command.Stdout = os.Stdout
+	command.Stderr = &stderr
+	command.Env = os.Environ()
 
-	runErr := cmd.Run()
+	runErr := command.Run()
 
 	stderrStr := stderr.String()
 	if stderrStr != "" {
@@ -179,24 +179,24 @@ func run(errorProneJar, dataflowJar, javacPath, out, classpath string, files []s
 
 	findings := parseDiagnostics(stderrStr)
 	successful, notifications := executionStatus(runErr, detectCompilerErrors(stderrStr))
-	return writeSARIF(out, toSARIF(findings, successful, notifications))
+	return writeSARIF(outputPath, toSARIF(findings, successful, notifications))
 }
 
 // detectCompilerErrors returns the genuine javac compilation errors in stderr —
 // the ones without an Error Prone [CheckName] tag. Those mean javac could not
 // fully compile the target, so Error Prone analyzed it only partially.
 func detectCompilerErrors(stderr string) []string {
-	var errs []string
-	for line := range strings.SplitSeq(stderr, "\n") {
-		if !strings.Contains(line, ": error:") {
+	var errorLines []string
+	for lineText := range strings.SplitSeq(stderr, "\n") {
+		if !strings.Contains(lineText, ": error:") {
 			continue
 		}
-		if diagnosticPattern.MatchString(line) {
+		if diagnosticPattern.MatchString(lineText) {
 			continue
 		}
-		errs = append(errs, strings.TrimSpace(line))
+		errorLines = append(errorLines, strings.TrimSpace(lineText))
 	}
-	return errs
+	return errorLines
 }
 
 // executionStatus decides whether the Error Prone run can be trusted as
@@ -218,9 +218,9 @@ func executionStatus(runErr error, compileErrors []string) (bool, []string) {
 }
 
 func buildJavacArgs(processorpath, classpath, tmpDir, fileList string) []string {
-	args := make([]string, 0, len(javacAddExports)+baseTen)
-	args = append(args, javacAddExports...)
-	args = append(args,
+	arguments := make([]string, 0, len(javacAddExports)+baseTen)
+	arguments = append(arguments, javacAddExports...)
+	arguments = append(arguments,
 		"-XDcompilePolicy=simple",
 		"-XDaddTypeAnnotationsToSymbol=true",
 		"--should-stop=ifError=FLOW",
@@ -230,11 +230,11 @@ func buildJavacArgs(processorpath, classpath, tmpDir, fileList string) []string 
 	)
 
 	if classpath != "" {
-		args = append(args, "-classpath", classpath)
+		arguments = append(arguments, "-classpath", classpath)
 	}
 
-	args = append(args, "@"+fileList)
-	return args
+	arguments = append(arguments, "@"+fileList)
+	return arguments
 }
 
 func findJavac() (string, error) {
@@ -245,19 +245,19 @@ func findJavac() (string, error) {
 			return candidate, nil
 		}
 	}
-	path, err := exec.LookPath("javac")
+	filePath, err := exec.LookPath("javac")
 	if err != nil {
 		return "", fmt.Errorf("javac not found: set JAVA_HOME or ensure javac is in PATH")
 	}
-	return path, nil
+	return filePath, nil
 }
 
 var diagnosticPattern = regexp.MustCompile(`^(.+):(\d+): (error|warning|note): \[(\w+)](.*)$`)
 
 func parseDiagnostics(stderr string) []finding {
 	findings := make([]finding, 0)
-	for line := range strings.SplitSeq(stderr, "\n") {
-		match := diagnosticPattern.FindStringSubmatch(line)
+	for lineText := range strings.SplitSeq(stderr, "\n") {
+		match := diagnosticPattern.FindStringSubmatch(lineText)
 		if match == nil {
 			continue
 		}
@@ -331,15 +331,15 @@ func toSARIF(findings []finding, successful bool, notifications []string) sarifL
 }
 
 func ruleList(rules map[string]sarifRule) []sarifRule {
-	out := make([]sarifRule, 0, len(rules))
+	outputPath := make([]sarifRule, 0, len(rules))
 	for _, rule := range rules {
-		out = append(out, rule)
+		outputPath = append(outputPath, rule)
 	}
-	return out
+	return outputPath
 }
 
-func writeSARIF(path string, doc sarifLog) (err error) {
-	sarifFile, createErr := os.Create(path)
+func writeSARIF(filePath string, sarifDoc sarifLog) (err error) {
+	sarifFile, createErr := os.Create(filePath)
 	if createErr != nil {
 		return fmt.Errorf("create sarif: %w", createErr)
 	}
@@ -351,7 +351,7 @@ func writeSARIF(path string, doc sarifLog) (err error) {
 
 	encoder := json.NewEncoder(sarifFile)
 	encoder.SetIndent("", "  ")
-	if encodeErr := encoder.Encode(doc); encodeErr != nil {
+	if encodeErr := encoder.Encode(sarifDoc); encodeErr != nil {
 		return fmt.Errorf("encode sarif: %w", encodeErr)
 	}
 	return nil
@@ -368,20 +368,20 @@ func writeFileList(files []string) (_ string, err error) {
 		}
 	}()
 
-	for _, path := range files {
-		if _, writeErr := fmt.Fprintln(listFile, path); writeErr != nil {
+	for _, filePath := range files {
+		if _, writeErr := fmt.Fprintln(listFile, filePath); writeErr != nil {
 			return "", fmt.Errorf("write file list: %w", writeErr)
 		}
 	}
 	return listFile.Name(), nil
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if suffix, ok := strings.CutPrefix(path, "external/"); ok {
-		alternate := filepath.Join("..", "..", path)
+	if suffix, ok := strings.CutPrefix(filePath, "external/"); ok {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
@@ -390,5 +390,5 @@ func resolveBazelExternal(path string) string {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

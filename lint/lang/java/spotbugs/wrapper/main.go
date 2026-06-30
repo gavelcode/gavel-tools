@@ -100,28 +100,28 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	spotbugs := flag.String("spotbugs", "", "Path to the pinned SpotBugs executable")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
-	jars := flag.Args()
-	if len(jars) == 0 {
+	jarFiles := flag.Args()
+	if len(jarFiles) == 0 {
 		fmt.Fprintln(os.Stderr, "missing jars")
 		return missingArgCode
 	}
 
-	if err := run(*spotbugs, *out, jars); err != nil {
+	if err := run(*spotbugs, *outputPath, jarFiles); err != nil {
 		fmt.Fprintf(os.Stderr, "run spotbugs: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(spotbugs, out string, jars []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(spotbugs, outputPath string, jarFiles []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 	if spotbugs == "" {
@@ -133,53 +133,53 @@ func run(spotbugs, out string, jars []string) error {
 	}
 	spotbugs = resolveBazelExternal(spotbugs)
 
-	xmlPath := out + ".xml"
+	xmlPath := outputPath + ".xml"
 	defer func() { _ = os.Remove(xmlPath) }()
-	args := append([]string{
+	arguments := append([]string{
 		"-textui",
 		"-xml:withMessages",
 		"-output",
 		xmlPath,
-	}, jars...)
-	cmd := exec.Command(spotbugs, args...)
+	}, jarFiles...)
+	cmd := exec.Command(spotbugs, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
 	if err := cmd.Run(); err != nil {
-		return writeSARIF(out, failedSARIF(fmt.Sprintf("SpotBugs failed to run: %v", err)))
+		return writeSARIF(outputPath, failedSARIF(fmt.Sprintf("SpotBugs failed to run: %v", err)))
 	}
 
-	doc, err := readXML(xmlPath)
+	bugReport, err := readXML(xmlPath)
 	if err != nil {
-		return writeSARIF(out, failedSARIF(fmt.Sprintf("SpotBugs output could not be parsed: %v", err)))
+		return writeSARIF(outputPath, failedSARIF(fmt.Sprintf("SpotBugs output could not be parsed: %v", err)))
 	}
-	return writeSARIF(out, toSARIF(doc))
+	return writeSARIF(outputPath, toSARIF(bugReport))
 }
 
-func readXML(path string) (bugCollection, error) {
-	body, err := os.ReadFile(path)
+func readXML(filePath string) (bugCollection, error) {
+	body, err := os.ReadFile(filePath)
 	if err != nil {
 		return bugCollection{}, fmt.Errorf("read spotbugs xml: %w", err)
 	}
-	var doc bugCollection
-	if err := xml.Unmarshal(body, &doc); err != nil {
+	var bugReport bugCollection
+	if err := xml.Unmarshal(body, &bugReport); err != nil {
 		return bugCollection{}, fmt.Errorf("decode spotbugs xml: %w", err)
 	}
-	return doc, nil
+	return bugReport, nil
 }
 
-func toSARIF(doc bugCollection) sarifLog {
+func toSARIF(bugReport bugCollection) sarifLog {
 	rules := make(map[string]sarifRule)
-	results := make([]sarifResult, 0, len(doc.Bugs))
-	for _, bug := range doc.Bugs {
-		rules[bug.Type] = sarifRule{
-			ID:   bug.Type,
-			Name: bug.Category,
+	results := make([]sarifResult, 0, len(bugReport.Bugs))
+	for _, bugInstance := range bugReport.Bugs {
+		rules[bugInstance.Type] = sarifRule{
+			ID:   bugInstance.Type,
+			Name: bugInstance.Category,
 			ShortDescription: sarifMessage{
-				Text: bug.Short,
+				Text: bugInstance.Short,
 			},
 		}
-		results = append(results, toResult(bug))
+		results = append(results, toResult(bugInstance))
 	}
 
 	return sarifLog{
@@ -189,7 +189,7 @@ func toSARIF(doc bugCollection) sarifLog {
 			Tool: sarifTool{
 				Driver: sarifDriver{
 					Name:    "SpotBugs",
-					Version: doc.Version,
+					Version: bugReport.Version,
 					Rules:   ruleList(rules),
 				},
 			},
@@ -213,16 +213,16 @@ func failedSARIF(reason string) sarifLog {
 	}
 }
 
-func toResult(bug bugInstance) sarifResult {
-	message := bug.LongMessage
+func toResult(bugInstance bugInstance) sarifResult {
+	message := bugInstance.LongMessage
 	if message == "" {
-		message = bug.Short
+		message = bugInstance.Short
 	}
 	return sarifResult{
-		RuleID:    bug.Type,
-		Level:     levelForPriority(bug.Priority),
+		RuleID:    bugInstance.Type,
+		Level:     levelForPriority(bugInstance.Priority),
 		Message:   sarifMessage{Text: message},
-		Locations: locationsFor(bug.SourceLine),
+		Locations: locationsFor(bugInstance.SourceLine),
 	}
 }
 
@@ -230,16 +230,16 @@ func locationsFor(lines []sourceLine) []sarifLocation {
 	if len(lines) == 0 {
 		return nil
 	}
-	line := lines[0]
-	if line.SourcePath == "" {
+	lineText := lines[0]
+	if lineText.SourcePath == "" {
 		return nil
 	}
 	return []sarifLocation{{
 		PhysicalLocation: sarifPhysicalLocation{
-			ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(line.SourcePath)},
+			ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(lineText.SourcePath)},
 			Region: sarifRegion{
-				StartLine: line.Start,
-				EndLine:   line.End,
+				StartLine: lineText.Start,
+				EndLine:   lineText.End,
 			},
 		},
 	}}
@@ -257,15 +257,15 @@ func levelForPriority(priority string) string {
 }
 
 func ruleList(rules map[string]sarifRule) []sarifRule {
-	out := make([]sarifRule, 0, len(rules))
+	outputPath := make([]sarifRule, 0, len(rules))
 	for _, rule := range rules {
-		out = append(out, rule)
+		outputPath = append(outputPath, rule)
 	}
-	return out
+	return outputPath
 }
 
-func writeSARIF(path string, doc sarifLog) (err error) {
-	sarifFile, createErr := os.Create(path)
+func writeSARIF(filePath string, sarifDoc sarifLog) (err error) {
+	sarifFile, createErr := os.Create(filePath)
 	if createErr != nil {
 		return fmt.Errorf("create sarif: %w", createErr)
 	}
@@ -277,18 +277,18 @@ func writeSARIF(path string, doc sarifLog) (err error) {
 
 	encoder := json.NewEncoder(sarifFile)
 	encoder.SetIndent("", "  ")
-	if encodeErr := encoder.Encode(doc); encodeErr != nil {
+	if encodeErr := encoder.Encode(sarifDoc); encodeErr != nil {
 		return fmt.Errorf("encode sarif: %w", encodeErr)
 	}
 	return nil
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if suffix, ok := strings.CutPrefix(path, "external/"); ok {
-		alternate := filepath.Join("..", "..", path)
+	if suffix, ok := strings.CutPrefix(filePath, "external/"); ok {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
@@ -297,5 +297,5 @@ func resolveBazelExternal(path string) string {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

@@ -21,14 +21,14 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
 		return exitCodeUsageError
 	}
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeUsageError
 	}
@@ -39,29 +39,29 @@ func execute() int {
 		return exitCodeUsageError
 	}
 
-	if err := run(*config, *out, files); err != nil {
+	if err := run(*config, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run rust archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(configPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	cfg, err := archtest.LoadConfig(configPath)
+	config, err := archtest.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	var allViolations []archtest.Violation
 	var failures []string
-	for _, file := range files {
-		violations, err := evaluateFile(file, cfg)
+	for _, sourceFile := range files {
+		violations, err := evaluateFile(sourceFile, config)
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
 		}
 		allViolations = append(allViolations, violations...)
@@ -71,25 +71,25 @@ func run(configPath, out string, files []string) error {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := archtest.WriteSARIFWithInvocation(out, "rust_archtest", allViolations, invocation); err != nil {
+	if err := archtest.WriteSARIFWithInvocation(outputPath, "rust_archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
-func evaluateFile(file string, cfg archtest.Config) ([]archtest.Violation, error) {
-	pkgDir := filepath.Dir(file)
-	layer := archtest.MatchLayer(pkgDir, cfg.Layers)
+func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violation, error) {
+	pkgDir := filepath.Dir(sourceFile)
+	layer := archtest.MatchLayer(pkgDir, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parseRustImports(file)
+	imports, err := parseRustImports(sourceFile)
 	if err != nil {
 		return nil, err
 	}
 
-	return archtest.Evaluate(file, layer, imports, cfg.Layers, cfg.Rules), nil
+	return archtest.Evaluate(sourceFile, layer, imports, config.Layers, config.Rules), nil
 }
 
 func parseRustImports(filePath string) (imports []archtest.Import, retErr error) {
@@ -110,45 +110,17 @@ func parseRustImports(filePath string) (imports []archtest.Import, retErr error)
 
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if inBlockComment {
-			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
-				inBlockComment = false
-				trimmed = strings.TrimSpace(trimmed[idx+2:])
-				if trimmed == "" {
-					continue
-				}
-			} else {
-				continue
-			}
-		}
-
-		trimmed = stripRustBlockComments(trimmed)
-
-		if strings.HasPrefix(trimmed, "//") {
+		trimmed, skip := cleanRustCommentLine(strings.TrimSpace(scanner.Text()), &inBlockComment)
+		if skip {
 			continue
 		}
-
-		if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
-			inBlockComment = true
-			trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
-			if trimmed == "" {
-				continue
-			}
-		}
-
 		if strings.HasPrefix(trimmed, "mod ") {
 			continue
 		}
-
 		if !strings.HasPrefix(trimmed, "use ") {
 			continue
 		}
-
-		parsed := parseUseStatement(trimmed, fileDir, lineNum)
-		imports = append(imports, parsed...)
+		imports = append(imports, parseUseStatement(trimmed, fileDir, lineNum)...)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -157,77 +129,105 @@ func parseRustImports(filePath string) (imports []archtest.Import, retErr error)
 	return imports, nil
 }
 
-func parseUseStatement(line, fileDir string, lineNum int) []archtest.Import {
-	stmt := strings.TrimPrefix(line, "use ")
-	stmt = strings.TrimSuffix(stmt, ";")
-	stmt = strings.TrimSpace(stmt)
-
-	if isStdlibUse(stmt) {
-		return nil
+// cleanRustCommentLine advances the block-comment state and strips comments,
+// returning the code left on the line and whether the caller should skip it.
+func cleanRustCommentLine(trimmed string, inBlockComment *bool) (string, bool) {
+	if *inBlockComment {
+		idx := strings.Index(trimmed, "*/")
+		if idx < 0 {
+			return "", true
+		}
+		*inBlockComment = false
+		trimmed = strings.TrimSpace(trimmed[idx+2:])
+		if trimmed == "" {
+			return "", true
+		}
 	}
-
-	if braceIdx := strings.Index(stmt, "::{"); braceIdx >= 0 {
-		return parseNestedUse(stmt, braceIdx, fileDir, lineNum)
+	trimmed = stripRustBlockComments(trimmed)
+	if strings.HasPrefix(trimmed, "//") {
+		return "", true
 	}
-
-	path := resolveRustPath(stmt, fileDir)
-	if path == "" {
-		return nil
+	if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
+		*inBlockComment = true
+		trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
+		if trimmed == "" {
+			return "", true
+		}
 	}
-
-	return []archtest.Import{{Path: path, Line: lineNum}}
+	return trimmed, false
 }
 
-func parseNestedUse(stmt string, braceIdx int, fileDir string, lineNum int) []archtest.Import {
-	prefix := stmt[:braceIdx]
-	braceContent := stmt[braceIdx+3:]
+func parseUseStatement(lineText, fileDir string, lineNum int) []archtest.Import {
+	statement := strings.TrimPrefix(lineText, "use ")
+	statement = strings.TrimSuffix(statement, ";")
+	statement = strings.TrimSpace(statement)
+
+	if isStdlibUse(statement) {
+		return nil
+	}
+
+	if braceIdx := strings.Index(statement, "::{"); braceIdx >= 0 {
+		return parseNestedUse(statement, braceIdx, fileDir, lineNum)
+	}
+
+	filePath := resolveRustPath(statement, fileDir)
+	if filePath == "" {
+		return nil
+	}
+
+	return []archtest.Import{{Path: filePath, Line: lineNum}}
+}
+
+func parseNestedUse(statement string, braceIdx int, fileDir string, lineNum int) []archtest.Import {
+	prefix := statement[:braceIdx]
+	braceContent := statement[braceIdx+3:]
 	braceContent = strings.TrimSuffix(braceContent, "}")
 
 	segments := strings.Split(braceContent, ",")
 	var imports []archtest.Import
-	for _, seg := range segments {
-		seg = strings.TrimSpace(seg)
-		if seg == "" || seg == "self" {
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" || segment == "self" {
 			continue
 		}
 
-		seg = stripLeadingColons(seg)
-		if subBrace := strings.Index(seg, "::{"); subBrace >= 0 {
-			seg = seg[:subBrace]
+		segment = stripLeadingColons(segment)
+		if subBrace := strings.Index(segment, "::{"); subBrace >= 0 {
+			segment = segment[:subBrace]
 		}
 
-		fullPath := prefix + "::" + seg
-		path := resolveRustPath(fullPath, fileDir)
-		if path == "" {
+		fullPath := prefix + "::" + segment
+		filePath := resolveRustPath(fullPath, fileDir)
+		if filePath == "" {
 			continue
 		}
-		imports = append(imports, archtest.Import{Path: path, Line: lineNum})
+		imports = append(imports, archtest.Import{Path: filePath, Line: lineNum})
 	}
 
 	if len(imports) == 0 {
-		path := resolveRustPath(prefix, fileDir)
-		if path != "" {
-			return []archtest.Import{{Path: path, Line: lineNum}}
+		filePath := resolveRustPath(prefix, fileDir)
+		if filePath != "" {
+			return []archtest.Import{{Path: filePath, Line: lineNum}}
 		}
 	}
 
 	return imports
 }
 
-func resolveRustPath(stmt, fileDir string) string {
-	if modPath, ok := strings.CutPrefix(stmt, "crate::"); ok {
+func resolveRustPath(statement, fileDir string) string {
+	if modPath, ok := strings.CutPrefix(statement, "crate::"); ok {
 		modPath = trimToModule(modPath)
 		return "src/" + strings.ReplaceAll(modPath, "::", "/")
 	}
 
-	if modPath, ok := strings.CutPrefix(stmt, "super::"); ok {
+	if modPath, ok := strings.CutPrefix(statement, "super::"); ok {
 		modPath = trimToModule(modPath)
 		parentDir := filepath.Dir(fileDir)
 		resolved := filepath.Join(parentDir, strings.ReplaceAll(modPath, "::", "/"))
 		return filepath.ToSlash(resolved)
 	}
 
-	if modPath, ok := strings.CutPrefix(stmt, "self::"); ok {
+	if modPath, ok := strings.CutPrefix(statement, "self::"); ok {
 		modPath = trimToModule(modPath)
 		resolved := filepath.Join(fileDir, strings.ReplaceAll(modPath, "::", "/"))
 		return filepath.ToSlash(resolved)
@@ -236,10 +236,10 @@ func resolveRustPath(stmt, fileDir string) string {
 	return ""
 }
 
-func trimToModule(path string) string {
-	parts := strings.Split(path, "::")
+func trimToModule(filePath string) string {
+	parts := strings.Split(filePath, "::")
 	if len(parts) <= 1 {
-		return path
+		return filePath
 	}
 
 	last := parts[len(parts)-1]
@@ -247,26 +247,26 @@ func trimToModule(path string) string {
 		return strings.Join(parts[:len(parts)-1], "::")
 	}
 
-	return path
+	return filePath
 }
 
-func isStdlibUse(stmt string) bool {
-	return strings.HasPrefix(stmt, "std::") ||
-		strings.HasPrefix(stmt, "core::") ||
-		strings.HasPrefix(stmt, "alloc::")
+func isStdlibUse(statement string) bool {
+	return strings.HasPrefix(statement, "std::") ||
+		strings.HasPrefix(statement, "core::") ||
+		strings.HasPrefix(statement, "alloc::")
 }
 
-func stripRustBlockComments(line string) string {
+func stripRustBlockComments(lineText string) string {
 	for {
-		start := strings.Index(line, "/*")
+		start := strings.Index(lineText, "/*")
 		if start < 0 {
-			return line
+			return lineText
 		}
-		end := strings.Index(line[start+2:], "*/")
+		end := strings.Index(lineText[start+2:], "*/")
 		if end < 0 {
-			return line
+			return lineText
 		}
-		line = line[:start] + line[start+2+end+2:]
+		lineText = lineText[:start] + lineText[start+2+end+2:]
 	}
 }
 

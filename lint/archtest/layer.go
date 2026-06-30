@@ -27,15 +27,15 @@ func matchPattern(path, pattern string) bool {
 	return matchSimple(path, pattern)
 }
 
-func matchSimple(path, pattern string) bool {
+func matchSimple(importPath, pattern string) bool {
 	if !strings.HasSuffix(pattern, recursiveSuffix) {
-		return path == pattern
+		return importPath == pattern
 	}
 
 	prefix := strings.TrimSuffix(pattern, recursiveSuffix)
 	prefix = strings.TrimSuffix(prefix, pathSeparator)
 
-	return path == prefix || strings.HasPrefix(path, prefix+pathSeparator)
+	return importPath == prefix || strings.HasPrefix(importPath, prefix+pathSeparator)
 }
 
 func matchWildcard(path, pattern string) bool {
@@ -47,17 +47,17 @@ func matchWildcard(path, pattern string) bool {
 
 func matchParts(pathParts, patternParts []string, patternIdx, pathIdx int) bool {
 	for patternIdx < len(patternParts) && pathIdx < len(pathParts) {
-		part := patternParts[patternIdx]
+		patternSegment := patternParts[patternIdx]
 
-		if part == wildcardSegment {
+		if patternSegment == wildcardSegment {
 			return matchDoubleWildcard(pathParts, patternParts, patternIdx, pathIdx)
 		}
 
-		if part == recursiveSuffix {
+		if patternSegment == recursiveSuffix {
 			return true
 		}
 
-		if part != pathParts[pathIdx] {
+		if patternSegment != pathParts[pathIdx] {
 			return false
 		}
 

@@ -95,12 +95,12 @@ const (
 func main() { os.Exit(execute()) }
 
 func execute() int {
-	pmd := flag.String("pmd", "", "Path to the pinned PMD executable")
-	out := flag.String("out", "", "SARIF output path")
+	pmdPath := flag.String("pmd", "", "Path to the pinned PMD executable")
+	outputPath := flag.String("out", "", "SARIF output path")
 	minimumTokens := flag.Int("minimum-tokens", defaultMinTokens, "Minimum token length for duplicate detection")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
@@ -110,26 +110,26 @@ func execute() int {
 		return missingArgCode
 	}
 
-	if err := run(*pmd, *out, *minimumTokens, files); err != nil {
+	if err := run(*pmdPath, *outputPath, *minimumTokens, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run cpd: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(pmd, out string, minimumTokens int, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(pmdPath, outputPath string, minimumTokens int, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if pmd == "" {
+	if pmdPath == "" {
 		bin, err := exec.LookPath("pmd")
 		if err != nil {
 			return errors.New("pmd not found in PATH and --pmd was not provided")
 		}
-		pmd = bin
+		pmdPath = bin
 	}
-	pmd = resolveBazelExternal(pmd)
+	pmdPath = resolveBazelExternal(pmdPath)
 
 	fileList, err := writeFileList(files)
 	if err != nil {
@@ -137,53 +137,53 @@ func run(pmd, out string, minimumTokens int, files []string) error {
 	}
 	defer func() { _ = os.Remove(fileList) }()
 
-	xmlPath := out + ".xml"
+	xmlPath := outputPath + ".xml"
 	defer func() { _ = os.Remove(xmlPath) }()
 
-	args := []string{
+	arguments := []string{
 		"cpd",
 		"--format=xml",
 		fmt.Sprintf("--minimum-tokens=%d", minimumTokens),
 		"--no-fail-on-violation",
 		"--file-list=" + fileList,
 	}
-	cmd := exec.Command(pmd, args...)
+	command := exec.Command(pmdPath, arguments...)
 	xmlOutput, err := os.Create(xmlPath)
 	if err != nil {
 		return fmt.Errorf("create xml output: %w", err)
 	}
-	cmd.Stdout = xmlOutput
-	cmd.Stderr = os.Stderr
-	cmd.Env = commandEnv()
-	if runErr := cmd.Run(); runErr != nil {
+	command.Stdout = xmlOutput
+	command.Stderr = os.Stderr
+	command.Env = commandEnv()
+	if runErr := command.Run(); runErr != nil {
 		_ = xmlOutput.Close()
-		return writeSARIF(out, failedSARIF(fmt.Sprintf("CPD failed to run: %v", runErr)))
+		return writeSARIF(outputPath, failedSARIF(fmt.Sprintf("CPD failed to run: %v", runErr)))
 	}
 	_ = xmlOutput.Close()
 
-	doc, err := readCPDXML(xmlPath)
+	cpdReport, err := readCPDXML(xmlPath)
 	if err != nil {
-		return writeSARIF(out, failedSARIF(fmt.Sprintf("CPD output could not be parsed: %v", err)))
+		return writeSARIF(outputPath, failedSARIF(fmt.Sprintf("CPD output could not be parsed: %v", err)))
 	}
-	return writeSARIF(out, toSARIF(doc))
+	return writeSARIF(outputPath, toSARIF(cpdReport))
 }
 
-func readCPDXML(path string) (pmdCPD, error) {
-	body, err := os.ReadFile(path)
+func readCPDXML(filePath string) (pmdCPD, error) {
+	body, err := os.ReadFile(filePath)
 	if err != nil {
 		return pmdCPD{}, fmt.Errorf("read cpd xml: %w", err)
 	}
-	var doc pmdCPD
-	if err := xml.Unmarshal(body, &doc); err != nil {
+	var cpdReport pmdCPD
+	if err := xml.Unmarshal(body, &cpdReport); err != nil {
 		return pmdCPD{}, fmt.Errorf("decode cpd xml: %w", err)
 	}
-	return doc, nil
+	return cpdReport, nil
 }
 
-func toSARIF(doc pmdCPD) sarifLog {
-	results := make([]sarifResult, 0, len(doc.Duplications))
-	for _, dup := range doc.Duplications {
-		results = append(results, toResult(dup))
+func toSARIF(cpdReport pmdCPD) sarifLog {
+	results := make([]sarifResult, 0, len(cpdReport.Duplications))
+	for _, duplicationEntry := range cpdReport.Duplications {
+		results = append(results, toResult(duplicationEntry))
 	}
 
 	return sarifLog{
@@ -220,21 +220,21 @@ func failedSARIF(reason string) sarifLog {
 	}
 }
 
-func toResult(dup duplication) sarifResult {
-	locations := make([]sarifLocation, 0, len(dup.Files))
-	filePaths := make([]string, 0, len(dup.Files))
-	for _, file := range dup.Files {
+func toResult(duplicationEntry duplication) sarifResult {
+	locations := make([]sarifLocation, 0, len(duplicationEntry.Files))
+	filePaths := make([]string, 0, len(duplicationEntry.Files))
+	for _, cpdFileEntry := range duplicationEntry.Files {
 		locations = append(locations, sarifLocation{
 			PhysicalLocation: sarifPhysicalLocation{
-				ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(file.Path)},
-				Region:           sarifRegion{StartLine: file.Line},
+				ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(cpdFileEntry.Path)},
+				Region:           sarifRegion{StartLine: cpdFileEntry.Line},
 			},
 		})
-		filePaths = append(filePaths, filepath.Base(file.Path))
+		filePaths = append(filePaths, filepath.Base(cpdFileEntry.Path))
 	}
 
 	message := fmt.Sprintf("Duplicated block of %d lines (%d tokens) across %s.",
-		dup.Lines, dup.Tokens, strings.Join(filePaths, ", "))
+		duplicationEntry.Lines, duplicationEntry.Tokens, strings.Join(filePaths, ", "))
 
 	return sarifResult{
 		RuleID:    "cpd/duplicate-code",
@@ -244,8 +244,8 @@ func toResult(dup duplication) sarifResult {
 	}
 }
 
-func writeSARIF(path string, doc sarifLog) (err error) {
-	sarifFile, createErr := os.Create(path)
+func writeSARIF(filePath string, sarifDoc sarifLog) (err error) {
+	sarifFile, createErr := os.Create(filePath)
 	if createErr != nil {
 		return fmt.Errorf("create sarif: %w", createErr)
 	}
@@ -257,7 +257,7 @@ func writeSARIF(path string, doc sarifLog) (err error) {
 
 	encoder := json.NewEncoder(sarifFile)
 	encoder.SetIndent("", "  ")
-	if encodeErr := encoder.Encode(doc); encodeErr != nil {
+	if encodeErr := encoder.Encode(sarifDoc); encodeErr != nil {
 		return fmt.Errorf("encode sarif: %w", encodeErr)
 	}
 	return nil
@@ -274,8 +274,8 @@ func writeFileList(files []string) (_ string, err error) {
 		}
 	}()
 
-	for _, path := range files {
-		if _, writeErr := fmt.Fprintln(listFile, path); writeErr != nil {
+	for _, filePath := range files {
+		if _, writeErr := fmt.Fprintln(listFile, filePath); writeErr != nil {
 			return "", fmt.Errorf("write file list: %w", writeErr)
 		}
 	}
@@ -283,32 +283,32 @@ func writeFileList(files []string) (_ string, err error) {
 }
 
 func commandEnv() []string {
-	env := sanitizedEnv()
-	if _, ok := lookupEnv(env, "JAVA_HOME"); ok {
-		return env
+	environment := sanitizedEnv()
+	if _, ok := lookupEnv(environment, "JAVA_HOME"); ok {
+		return environment
 	}
 
 	javaHome := os.Getenv("JAVA_HOME")
 	if javaHome != "" {
-		return append(env, "JAVA_HOME="+javaHome)
+		return append(environment, "JAVA_HOME="+javaHome)
 	}
-	return env
+	return environment
 }
 
 func sanitizedEnv() []string {
-	env := make([]string, 0, len(os.Environ()))
+	environment := make([]string, 0, len(os.Environ()))
 	for _, item := range os.Environ() {
 		if strings.HasPrefix(item, "JAVA_HOME=") {
 			continue
 		}
-		env = append(env, item)
+		environment = append(environment, item)
 	}
-	return env
+	return environment
 }
 
-func lookupEnv(env []string, key string) (string, bool) {
+func lookupEnv(environment []string, key string) (string, bool) {
 	prefix := key + "="
-	for _, item := range env {
+	for _, item := range environment {
 		if val, ok := strings.CutPrefix(item, prefix); ok {
 			return val, true
 		}
@@ -316,12 +316,12 @@ func lookupEnv(env []string, key string) (string, bool) {
 	return "", false
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if suffix, ok := strings.CutPrefix(path, "external/"); ok {
-		alternate := filepath.Join("..", "..", path)
+	if suffix, ok := strings.CutPrefix(filePath, "external/"); ok {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
@@ -330,5 +330,5 @@ func resolveBazelExternal(path string) string {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

@@ -14,7 +14,7 @@ func TestEvaluate(t *testing.T) {
 		"domain":         {"internal/domain/..."},
 		"application":    {"internal/application/..."},
 		"infrastructure": {"internal/infrastructure/..."},
-		"userinterface":     {"internal/userinterface/..."},
+		"userinterface":  {"internal/userinterface/..."},
 	}
 
 	rules := []archtest.Rule{
@@ -125,7 +125,7 @@ func TestEvaluate(t *testing.T) {
 
 func TestEvaluateStripsModulePrefix(t *testing.T) {
 	layers := map[string][]string{
-		"domain":      {"core/domain/..."},
+		"domain":        {"core/domain/..."},
 		"userinterface": {"core/userinterface/..."},
 	}
 	rules := []archtest.Rule{

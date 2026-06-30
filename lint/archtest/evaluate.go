@@ -23,11 +23,11 @@ func EvaluateWithModule(sourceFile, sourceLayer string, imports []Import, layers
 	if modulePrefix != "" {
 		stripped := make([]Import, 0, len(imports))
 		prefix := modulePrefix + "/"
-		for _, imp := range imports {
-			if strings.HasPrefix(imp.Path, prefix) {
-				stripped = append(stripped, Import{Path: strings.TrimPrefix(imp.Path, prefix), Line: imp.Line})
+		for _, importEntry := range imports {
+			if strings.HasPrefix(importEntry.Path, prefix) {
+				stripped = append(stripped, Import{Path: strings.TrimPrefix(importEntry.Path, prefix), Line: importEntry.Line})
 			} else {
-				stripped = append(stripped, imp)
+				stripped = append(stripped, importEntry)
 			}
 		}
 		imports = stripped
@@ -42,21 +42,21 @@ func Evaluate(sourceFile, sourceLayer string, imports []Import, layers map[strin
 	}
 
 	var violations []Violation
-	for _, imp := range imports {
-		targetLayer := MatchLayer(imp.Path, layers)
+	for _, importEntry := range imports {
+		targetLayer := MatchLayer(importEntry.Path, layers)
 		if targetLayer == "" || targetLayer == sourceLayer {
 			continue
 		}
 
-		for _, rule := range applicableRules {
-			if isDenied(targetLayer, rule.Deny) {
+		for _, archRule := range applicableRules {
+			if isDenied(targetLayer, archRule.Deny) {
 				violations = append(violations, Violation{
-					RuleName:   rule.Name,
+					RuleName:   archRule.Name,
 					SourceFile: sourceFile,
-					SourceLine: imp.Line,
+					SourceLine: importEntry.Line,
 					SourcePkg:  sourceLayer,
 					TargetPkg:  targetLayer,
-					Message:    fmt.Sprintf("%s imports %s (layer %q -> %q denied by rule %q)", sourceFile, imp.Path, sourceLayer, targetLayer, rule.Name),
+					Message:    fmt.Sprintf("%s imports %s (layer %q -> %q denied by rule %q)", sourceFile, importEntry.Path, sourceLayer, targetLayer, archRule.Name),
 				})
 			}
 		}

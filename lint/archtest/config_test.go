@@ -39,7 +39,7 @@ detect_cycles: true
 				"domain":         {"internal/domain/..."},
 				"application":    {"internal/application/..."},
 				"infrastructure": {"internal/infrastructure/..."},
-				"userinterface":     {"internal/userinterface/..."},
+				"userinterface":  {"internal/userinterface/..."},
 			},
 			wantRules: []archtest.Rule{
 				{Name: "domain-imports-nothing", Source: "domain", Deny: []string{"application", "infrastructure", "userinterface"}},

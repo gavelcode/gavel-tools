@@ -8,20 +8,20 @@ import (
 
 const filePermission = 0o644
 
-// MarkSuccessful guarantees the SARIF the tool already wrote at path carries an
+// MarkSuccessful guarantees the SARIF the tool already wrote at reportPath carries an
 // executionSuccessful flag on every run, injecting true where the tool emitted
 // no invocation. A flag the tool set itself (e.g. PMD's) is left untouched. Use
 // for tools that write their own SARIF and completed successfully.
-func MarkSuccessful(path string) error {
-	data, err := os.ReadFile(path)
+func MarkSuccessful(reportPath string) error {
+	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		return fmt.Errorf("read sarif: %w", err)
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(data, &doc); err != nil {
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
 		return fmt.Errorf("decode sarif: %w", err)
 	}
-	runs, _ := doc["runs"].([]any)
+	runs, _ := document["runs"].([]any)
 	for _, entry := range runs {
 		run, ok := entry.(map[string]any)
 		if !ok {
@@ -31,14 +31,14 @@ func MarkSuccessful(path string) error {
 			run["invocations"] = []any{map[string]any{"executionSuccessful": true}}
 		}
 	}
-	return writeJSON(path, doc)
+	return writeJSON(reportPath, document)
 }
 
-// WriteFailed overwrites path with a minimal SARIF reporting that toolName could
+// WriteFailed overwrites reportPath with a minimal SARIF reporting that toolName could
 // not complete, carrying reason as an error-level notification — for when the
 // tool produced no usable output.
-func WriteFailed(path, toolName, reason string) error {
-	doc := map[string]any{
+func WriteFailed(reportPath, toolName, reason string) error {
+	document := map[string]any{
 		"version": "2.1.0",
 		"$schema": "https://json.schemastore.org/sarif-2.1.0.json",
 		"runs": []any{map[string]any{
@@ -53,15 +53,15 @@ func WriteFailed(path, toolName, reason string) error {
 			}},
 		}},
 	}
-	return writeJSON(path, doc)
+	return writeJSON(reportPath, document)
 }
 
-func writeJSON(path string, doc any) error {
-	out, err := json.MarshalIndent(doc, "", "  ")
+func writeJSON(reportPath string, document any) error {
+	out, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode sarif: %w", err)
 	}
-	if err := os.WriteFile(path, append(out, '\n'), filePermission); err != nil {
+	if err := os.WriteFile(reportPath, append(out, '\n'), filePermission); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil

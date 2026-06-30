@@ -22,14 +22,14 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
 		return exitCodeMisuse
 	}
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeMisuse
 	}
@@ -40,29 +40,29 @@ func execute() int {
 		return exitCodeMisuse
 	}
 
-	if err := run(*config, *out, files); err != nil {
+	if err := run(*config, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run python archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(configPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	cfg, err := archtest.LoadConfig(configPath)
+	config, err := archtest.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	var allViolations []archtest.Violation
 	var failures []string
-	for _, file := range files {
-		violations, err := evaluateFile(file, cfg)
+	for _, sourceFile := range files {
+		violations, err := evaluateFile(sourceFile, config)
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
 		}
 		allViolations = append(allViolations, violations...)
@@ -72,25 +72,25 @@ func run(configPath, out string, files []string) error {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := archtest.WriteSARIFWithInvocation(out, "python_archtest", allViolations, invocation); err != nil {
+	if err := archtest.WriteSARIFWithInvocation(outputPath, "python_archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
-func evaluateFile(file string, cfg archtest.Config) ([]archtest.Violation, error) {
-	pkgDir := filepath.Dir(file)
-	layer := archtest.MatchLayer(pkgDir, cfg.Layers)
+func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violation, error) {
+	pkgDir := filepath.Dir(sourceFile)
+	layer := archtest.MatchLayer(pkgDir, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parsePythonImports(file)
+	imports, err := parsePythonImports(sourceFile)
 	if err != nil {
 		return nil, err
 	}
 
-	return archtest.Evaluate(file, layer, imports, cfg.Layers, cfg.Rules), nil
+	return archtest.Evaluate(sourceFile, layer, imports, config.Layers, config.Rules), nil
 }
 
 func parsePythonImports(filePath string) (_ []archtest.Import, err error) {
@@ -111,67 +111,15 @@ func parsePythonImports(filePath string) (_ []archtest.Import, err error) {
 	inTripleQuote := false
 	tripleQuoteChar := ""
 	inParenImport := false
-	parenImportPath := ""
-	parenImportLine := 0
 
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-
-		if inTripleQuote {
-			if containsTripleQuote(line, tripleQuoteChar) {
-				inTripleQuote = false
-				tripleQuoteChar = ""
-			}
+		lineText := scanner.Text()
+		if advanceTripleQuote(lineText, &inTripleQuote, &tripleQuoteChar) {
 			continue
 		}
-
-		if tq := detectTripleQuote(line); tq != "" {
-			count := strings.Count(line, tq)
-			if count%2 != 0 {
-				inTripleQuote = true
-				tripleQuoteChar = tq
-			}
-			continue
-		}
-
-		trimmed := stripInlineComment(line)
-		trimmed = strings.TrimSpace(trimmed)
-
-		if inParenImport {
-			if strings.Contains(trimmed, ")") {
-				inParenImport = false
-			}
-			continue
-		}
-
-		if trimmed == "" {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "from ") {
-			imp, continuation := parseFromImport(trimmed, fileDir, lineNum)
-			if imp.Path != "" {
-				imports = append(imports, imp)
-			}
-			if continuation {
-				inParenImport = true
-				parenImportPath = imp.Path
-				parenImportLine = lineNum
-			}
-			_ = parenImportPath
-			_ = parenImportLine
-			if !continuation && strings.HasSuffix(trimmed, "\\") {
-				inParenImport = true
-			}
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "import ") {
-			parsed := parseImportStatement(trimmed, lineNum)
-			imports = append(imports, parsed...)
-			continue
-		}
+		trimmed := strings.TrimSpace(stripInlineComment(lineText))
+		collectPythonImport(trimmed, fileDir, lineNum, &inParenImport, &imports)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -180,8 +128,59 @@ func parsePythonImports(filePath string) (_ []archtest.Import, err error) {
 	return imports, nil
 }
 
-func parseFromImport(line, fileDir string, lineNum int) (archtest.Import, bool) {
-	rest := strings.TrimPrefix(line, "from ")
+// collectPythonImport records an `import`/`from` statement, tracking whether the
+// parser is inside a parenthesised multi-line import across calls.
+func collectPythonImport(trimmed, fileDir string, lineNum int, inParenImport *bool, imports *[]archtest.Import) {
+	if *inParenImport {
+		if strings.Contains(trimmed, ")") {
+			*inParenImport = false
+		}
+		return
+	}
+	if trimmed == "" {
+		return
+	}
+	if strings.HasPrefix(trimmed, "from ") {
+		*inParenImport = handlePythonFrom(trimmed, fileDir, lineNum, imports)
+		return
+	}
+	if strings.HasPrefix(trimmed, "import ") {
+		*imports = append(*imports, parseImportStatement(trimmed, lineNum)...)
+	}
+}
+
+// advanceTripleQuote tracks Python triple-quoted string state, reporting whether
+// the line is inside (or opens/closes) one and should be skipped.
+func advanceTripleQuote(lineText string, inTripleQuote *bool, tripleQuoteChar *string) bool {
+	if *inTripleQuote {
+		if containsTripleQuote(lineText, *tripleQuoteChar) {
+			*inTripleQuote = false
+			*tripleQuoteChar = ""
+		}
+		return true
+	}
+	if tripleQuote := detectTripleQuote(lineText); tripleQuote != "" {
+		if strings.Count(lineText, tripleQuote)%2 != 0 {
+			*inTripleQuote = true
+			*tripleQuoteChar = tripleQuote
+		}
+		return true
+	}
+	return false
+}
+
+// handlePythonFrom records a `from … import …` and reports whether the import
+// continues across lines (open parenthesis or backslash).
+func handlePythonFrom(trimmed, fileDir string, lineNum int, imports *[]archtest.Import) bool {
+	importPath, continuation := parseFromImport(trimmed, fileDir, lineNum)
+	if importPath.Path != "" {
+		*imports = append(*imports, importPath)
+	}
+	return continuation || strings.HasSuffix(trimmed, "\\")
+}
+
+func parseFromImport(lineText, fileDir string, lineNum int) (archtest.Import, bool) {
+	rest := strings.TrimPrefix(lineText, "from ")
 	parts := strings.SplitN(rest, " import ", expectedParts)
 	if len(parts) < expectedParts {
 		return archtest.Import{}, false
@@ -194,8 +193,8 @@ func parseFromImport(line, fileDir string, lineNum int) (archtest.Import, bool) 
 	return archtest.Import{Path: path, Line: lineNum}, hasParen
 }
 
-func parseImportStatement(line string, lineNum int) []archtest.Import {
-	rest := strings.TrimPrefix(line, "import ")
+func parseImportStatement(lineText string, lineNum int) []archtest.Import {
+	rest := strings.TrimPrefix(lineText, "import ")
 	rest = strings.TrimSuffix(rest, "\\")
 	rest = strings.TrimSpace(rest)
 
@@ -221,62 +220,62 @@ func resolveModulePath(module, fileDir string) string {
 		return dotsToSlashes(module)
 	}
 
-	dots := 0
+	leadingDots := 0
 	for _, ch := range module {
 		if ch == '.' {
-			dots++
+			leadingDots++
 		} else {
 			break
 		}
 	}
 
-	remainder := module[dots:]
-	base := fileDir
-	for i := 1; i < dots; i++ {
-		base = filepath.Dir(base)
+	remainder := module[leadingDots:]
+	baseDir := fileDir
+	for i := 1; i < leadingDots; i++ {
+		baseDir = filepath.Dir(baseDir)
 	}
 
 	if remainder == "" {
-		return filepath.ToSlash(base)
+		return filepath.ToSlash(baseDir)
 	}
 
 	suffix := dotsToSlashes(remainder)
-	return filepath.ToSlash(filepath.Join(base, suffix))
+	return filepath.ToSlash(filepath.Join(baseDir, suffix))
 }
 
 func dotsToSlashes(module string) string {
 	return strings.ReplaceAll(module, ".", "/")
 }
 
-func stripInlineComment(line string) string {
+func stripInlineComment(lineText string) string {
 	inString := false
 	stringChar := byte(0)
-	for offset := 0; offset < len(line); offset++ {
-		char := line[offset]
+	for offset := 0; offset < len(lineText); offset++ {
+		character := lineText[offset]
 		if inString {
-			if char == '\\' {
+			if character == '\\' {
 				offset++
 				continue
 			}
-			if char == stringChar {
+			if character == stringChar {
 				inString = false
 			}
 			continue
 		}
-		if char == '\'' || char == '"' {
+		if character == '\'' || character == '"' {
 			inString = true
-			stringChar = char
+			stringChar = character
 			continue
 		}
-		if char == '#' {
-			return line[:offset]
+		if character == '#' {
+			return lineText[:offset]
 		}
 	}
-	return line
+	return lineText
 }
 
-func detectTripleQuote(line string) string {
-	trimmed := strings.TrimSpace(line)
+func detectTripleQuote(lineText string) string {
+	trimmed := strings.TrimSpace(lineText)
 	if strings.Contains(trimmed, `"""`) {
 		return `"""`
 	}
@@ -286,6 +285,6 @@ func detectTripleQuote(line string) string {
 	return ""
 }
 
-func containsTripleQuote(line, quote string) bool {
-	return strings.Contains(line, quote)
+func containsTripleQuote(lineText, quote string) bool {
+	return strings.Contains(lineText, quote)
 }

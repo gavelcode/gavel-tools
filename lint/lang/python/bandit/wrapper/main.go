@@ -22,10 +22,10 @@ func main() { os.Exit(execute()) }
 func execute() int {
 	pythonFlag := flag.String("python", "", "Path to the python3 binary")
 	sitePackages := flag.String("site-packages", "", "Path to Bandit site-packages directory")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeMisuse
 	}
@@ -35,15 +35,15 @@ func execute() int {
 		return exitCodeMisuse
 	}
 
-	if err := run(*pythonFlag, *sitePackages, *out, files); err != nil {
+	if err := run(*pythonFlag, *sitePackages, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run bandit: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(pythonPath, sitePackages, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(pythonPath, sitePackages, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -62,35 +62,35 @@ func run(pythonPath, sitePackages, out string, files []string) error {
 		sitePackages = resolveBazelExternal(sitePackages)
 	}
 
-	args := buildArgs(out, files)
-	cmd := exec.Command(python3, args...)
+	arguments := buildArgs(outputPath, files)
+	cmd := exec.Command(python3, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = buildEnv(sitePackages)
 	if err := cmd.Run(); err != nil {
-		return sarif.WriteFailed(out, "bandit", fmt.Sprintf("bandit failed to run: %v", err))
+		return sarif.WriteFailed(outputPath, "bandit", fmt.Sprintf("bandit failed to run: %v", err))
 	}
-	return sarif.MarkSuccessful(out)
+	return sarif.MarkSuccessful(outputPath)
 }
 
-func buildArgs(out string, files []string) []string {
-	args := []string{
+func buildArgs(outputPath string, files []string) []string {
+	arguments := []string{
 		"-m", "bandit",
 		"--format", "sarif",
 		"--exit-zero",
-		"--output", out,
+		"--output", outputPath,
 	}
-	return append(args, files...)
+	return append(arguments, files...)
 }
 
 func buildEnv(sitePackages string) []string {
-	env := os.Environ()
+	environment := os.Environ()
 	if sitePackages == "" {
-		return env
+		return environment
 	}
 
-	result := make([]string, 0, len(env)+1)
-	for _, item := range env {
+	result := make([]string, 0, len(environment)+1)
+	for _, item := range environment {
 		if strings.HasPrefix(item, "PYTHONPATH=") {
 			continue
 		}
@@ -116,12 +116,12 @@ func findPython() (string, error) {
 	return "", errors.New("python3 not found: ensure python3 is in PATH")
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if suffix, ok := strings.CutPrefix(path, "external/"); ok {
-		alternate := filepath.Join("..", "..", path)
+	if suffix, ok := strings.CutPrefix(filePath, "external/"); ok {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
@@ -130,5 +130,5 @@ func resolveBazelExternal(path string) string {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

@@ -10,3 +10,9 @@ exports_files(
     ],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "gavel_lint_config",
+    srcs = [".golangci.yml"],
+    visibility = ["//visibility:public"],
+)

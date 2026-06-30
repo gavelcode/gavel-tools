@@ -49,39 +49,39 @@ func parseDiagnostics(data []byte) []diagnostic {
 	var result []diagnostic
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
+		inputLine := bytes.TrimSpace(scanner.Bytes())
+		if len(inputLine) == 0 {
 			continue
 		}
 
-		var msg rustcMessage
-		if err := json.Unmarshal(line, &msg); err != nil {
+		var parsedMessage rustcMessage
+		if err := json.Unmarshal(inputLine, &parsedMessage); err != nil {
 			continue
 		}
-		if msg.MessageType != "diagnostic" {
+		if parsedMessage.MessageType != "diagnostic" {
 			continue
 		}
-		if msg.Code == nil || msg.Code.Code == "" {
+		if parsedMessage.Code == nil || parsedMessage.Code.Code == "" {
 			continue
 		}
-		if msg.Level != "warning" && msg.Level != "error" {
+		if parsedMessage.Level != "warning" && parsedMessage.Level != "error" {
 			continue
 		}
 
-		span := primarySpan(msg.Spans)
-		if span == nil {
+		sourceSpan := primarySpan(parsedMessage.Spans)
+		if sourceSpan == nil {
 			continue
 		}
 
 		result = append(result, diagnostic{
-			RuleID:    msg.Code.Code,
-			Level:     msg.Level,
-			Message:   msg.Message,
-			FilePath:  span.FileName,
-			StartLine: span.LineStart,
-			StartCol:  span.ColumnStart,
-			EndLine:   span.LineEnd,
-			EndCol:    span.ColumnEnd,
+			RuleID:    parsedMessage.Code.Code,
+			Level:     parsedMessage.Level,
+			Message:   parsedMessage.Message,
+			FilePath:  sourceSpan.FileName,
+			StartLine: sourceSpan.LineStart,
+			StartCol:  sourceSpan.ColumnStart,
+			EndLine:   sourceSpan.LineEnd,
+			EndCol:    sourceSpan.ColumnEnd,
 		})
 	}
 	return result
@@ -159,24 +159,24 @@ func toSARIF(diagnostics []diagnostic) sarifReport {
 	var rules []sarifRule
 	var results []sarifResult
 
-	for _, diag := range diagnostics {
-		if !ruleSet[diag.RuleID] {
-			ruleSet[diag.RuleID] = true
-			rules = append(rules, sarifRule{ID: diag.RuleID})
+	for _, diagnosticEntry := range diagnostics {
+		if !ruleSet[diagnosticEntry.RuleID] {
+			ruleSet[diagnosticEntry.RuleID] = true
+			rules = append(rules, sarifRule{ID: diagnosticEntry.RuleID})
 		}
 
 		results = append(results, sarifResult{
-			RuleID:  diag.RuleID,
-			Level:   diag.Level,
-			Message: sarifMessage{Text: diag.Message},
+			RuleID:  diagnosticEntry.RuleID,
+			Level:   diagnosticEntry.Level,
+			Message: sarifMessage{Text: diagnosticEntry.Message},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
-					ArtifactLocation: sarifArtifact{URI: toURI(diag.FilePath)},
+					ArtifactLocation: sarifArtifact{URI: toURI(diagnosticEntry.FilePath)},
 					Region: sarifRegion{
-						StartLine:   diag.StartLine,
-						StartColumn: diag.StartCol,
-						EndLine:     diag.EndLine,
-						EndColumn:   diag.EndCol,
+						StartLine:   diagnosticEntry.StartLine,
+						StartColumn: diagnosticEntry.StartCol,
+						EndLine:     diagnosticEntry.EndLine,
+						EndColumn:   diagnosticEntry.EndCol,
 					},
 				},
 			}},
@@ -206,4 +206,3 @@ func toSARIF(diagnostics []diagnostic) sarifReport {
 func toURI(path string) string {
 	return strings.ReplaceAll(path, "\\", "/")
 }
-

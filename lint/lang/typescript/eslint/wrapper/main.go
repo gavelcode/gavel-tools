@@ -24,11 +24,11 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	eslint := flag.String("eslint", "", "Path to the ESLint executable")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	config := flag.String("config", "", "Path to eslint.config.js")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return expectedArgCount
 	}
@@ -38,100 +38,124 @@ func execute() int {
 		return expectedArgCount
 	}
 
-	if err := run(*eslint, *out, *config, files); err != nil {
+	if err := run(*eslint, *outputPath, *config, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run eslint: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(eslint, out, config string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(eslint, outputPath, config string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
+	eslintBin, err := resolveESLintBin(eslint)
+	if err != nil {
+		return err
+	}
+
+	absFiles := absolutePaths(files)
+	outputPath = toAbsolutePath(outputPath)
+	if config != "" {
+		config = toAbsolutePath(config)
+	}
+
+	reportPath, cleanup, err := createReportFile()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	return runESLint(eslintBin, outputPath, config, reportPath, absFiles)
+}
+
+// resolveESLintBin locates the ESLint executable, falling back to PATH, then
+// rewrites the path for the Bazel sandbox and repairs its store symlinks.
+func resolveESLintBin(eslint string) (string, error) {
 	if eslint == "" {
 		bin, err := exec.LookPath("eslint")
 		if err != nil {
-			return errors.New("eslint not found in PATH and --eslint was not provided")
+			return "", errors.New("eslint not found in PATH and --eslint was not provided")
 		}
 		eslint = bin
 	}
 	eslint = resolveBazelExternal(eslint)
-
 	fixBrokenStoreLinks(eslint)
+	return eslint, nil
+}
 
+func absolutePaths(files []string) []string {
 	absFiles := make([]string, len(files))
-	for i, f := range files {
-		if abs, err := filepath.Abs(f); err == nil {
-			absFiles[i] = abs
-		} else {
-			absFiles[i] = f
-		}
+	for index, filePath := range files {
+		absFiles[index] = toAbsolutePath(filePath)
 	}
+	return absFiles
+}
 
-	absOut, err := filepath.Abs(out)
-	if err == nil {
-		out = absOut
+func toAbsolutePath(filePath string) string {
+	if abs, err := filepath.Abs(filePath); err == nil {
+		return abs
 	}
+	return filePath
+}
 
-	if config != "" {
-		if absConfig, absErr := filepath.Abs(config); absErr == nil {
-			config = absConfig
-		}
-	}
-
+// createReportFile reserves a temp file for ESLint's JSON output and returns a
+// cleanup that removes it.
+func createReportFile() (string, func(), error) {
 	jsonReport, err := os.CreateTemp("", "gavel-eslint-*.json")
 	if err != nil {
-		return fmt.Errorf("create report file: %w", err)
+		return "", nil, fmt.Errorf("create report file: %w", err)
 	}
 	reportPath := jsonReport.Name()
-	jsonReport.Close()
-	defer func() { _ = os.Remove(reportPath) }()
+	_ = jsonReport.Close()
+	return reportPath, func() { _ = os.Remove(reportPath) }, nil
+}
 
-	args := buildArgs(reportPath, config, absFiles)
-	cmd := exec.Command(eslint, args...)
+func runESLint(eslintBin, outputPath, config, reportPath string, files []string) error {
+	arguments := buildArgs(reportPath, config, files)
+	cmd := exec.Command(eslintBin, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = eslintEnv(eslint)
+	cmd.Env = eslintEnv(eslintBin)
 	runErr := cmd.Run()
 	if runErr != nil && !isLintExitCode(runErr) {
 		reason := fmt.Sprintf("eslint failed to run: %v", runErr)
 		if isMisconfiguration(runErr) {
 			reason = fmt.Sprintf("eslint configuration error (exit 2): %v", runErr)
 		}
-		return sarif.WriteFailed(out, "eslint", reason)
+		return sarif.WriteFailed(outputPath, "eslint", reason)
 	}
-	return convertReport(reportPath, out)
+	return convertReport(reportPath, outputPath)
 }
 
 // convertReport turns ESLint's JSON report into SARIF. The built-in `json`
 // formatter is used (not the npm SARIF formatter, which does not resolve inside
 // the sandbox), so conversion happens here.
-func convertReport(reportPath, out string) error {
+func convertReport(reportPath, outputPath string) error {
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
-		return sarif.WriteFailed(out, "eslint", fmt.Sprintf("read eslint report: %v", err))
+		return sarif.WriteFailed(outputPath, "eslint", fmt.Sprintf("read eslint report: %v", err))
 	}
 	sarifBytes, err := converter.Convert(data)
 	if err != nil {
-		return sarif.WriteFailed(out, "eslint", fmt.Sprintf("convert eslint report: %v", err))
+		return sarif.WriteFailed(outputPath, "eslint", fmt.Sprintf("convert eslint report: %v", err))
 	}
-	if err := os.WriteFile(out, sarifBytes, filePermission); err != nil {
+	if err := os.WriteFile(outputPath, sarifBytes, filePermission); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
 func buildArgs(reportPath, config string, files []string) []string {
-	args := []string{
+	arguments := []string{
 		"--format", "json",
 		"--output-file", reportPath,
 	}
 	if config != "" {
-		args = append(args, "--config", config)
+		arguments = append(arguments, "--config", config)
 	}
-	return append(args, files...)
+	return append(arguments, files...)
 }
 
 func isLintExitCode(err error) bool {
@@ -151,7 +175,7 @@ func isMisconfiguration(err error) bool {
 }
 
 func eslintEnv(eslintBin string) []string {
-	env := make([]string, 0, len(os.Environ())+envCapacityOverhead)
+	environment := make([]string, 0, len(os.Environ())+envCapacityOverhead)
 	for _, entry := range os.Environ() {
 		if strings.HasPrefix(entry, "JS_BINARY__PATCH_NODE_FS=") {
 			continue
@@ -159,17 +183,17 @@ func eslintEnv(eslintBin string) []string {
 		if strings.HasPrefix(entry, "NODE_PATH=") {
 			continue
 		}
-		env = append(env, entry)
+		environment = append(environment, entry)
 	}
-	env = append(env, "JS_BINARY__PATCH_NODE_FS=0")
+	environment = append(environment, "JS_BINARY__PATCH_NODE_FS=0")
 	binDir := filepath.Dir(eslintBin)
 	toolDir := filepath.Dir(binDir)
 	nodeModules := filepath.Join(toolDir, "node_modules")
 	if abs, err := filepath.Abs(nodeModules); err == nil {
 		nodeModules = abs
 	}
-	env = append(env, "NODE_PATH="+nodeModules)
-	return env
+	environment = append(environment, "NODE_PATH="+nodeModules)
+	return environment
 }
 
 func fixBrokenStoreLinks(eslintBin string) {
@@ -208,19 +232,19 @@ func fixStoreDir(aspectDir string) {
 	}
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if strings.HasPrefix(path, "external/") {
-		alternate := filepath.Join("..", "..", path)
+	if strings.HasPrefix(filePath, "external/") {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
-		matches, err := filepath.Glob(filepath.Join("..", "..", "external", "*"+strings.TrimPrefix(path, "external/")))
+		matches, err := filepath.Glob(filepath.Join("..", "..", "external", "*"+strings.TrimPrefix(filePath, "external/")))
 		if err == nil && len(matches) > 0 {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

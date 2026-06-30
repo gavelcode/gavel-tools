@@ -23,32 +23,32 @@ func execute() int {
 	driver := flag.String("driver", "", "Path to the static gopackagesdriver binary")
 	manifest := flag.String("manifest", "", "Path to the pkg.json manifest the driver reads")
 	goBinary := flag.String("go", "", "Path to the Go SDK binary, used to derive GOROOT")
-	pkg := flag.String("package", "", "Go package directory to lint")
-	out := flag.String("out", "", "SARIF output path")
+	packageFlag := flag.String("package", "", "Go package directory to lint")
+	outputFlag := flag.String("out", "", "SARIF output path")
 	skipTests := flag.Bool("skip-tests", false, "Exclude test files from analysis")
 	flag.Parse()
 
-	if *pkg == "" {
+	if *packageFlag == "" {
 		fmt.Fprintln(os.Stderr, "missing --package")
 		return exitUsageError
 	}
-	if *out == "" {
+	if *outputFlag == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitUsageError
 	}
 
-	if err := run(*binary, *driver, *manifest, *goBinary, *pkg, *out, *skipTests); err != nil {
+	if err := run(*binary, *driver, *manifest, *goBinary, *packageFlag, *outputFlag, *skipTests); err != nil {
 		fmt.Fprintf(os.Stderr, "run golangci-lint: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(binary, driver, manifest, goBinary, pkg, out string, skipTests bool) (err error) {
-	if absOut, absErr := filepath.Abs(out); absErr == nil {
-		out = absOut
+func run(binary, driver, manifest, goBinary, packageDir, outputPath string, skipTests bool) (err error) {
+	if absOut, absErr := filepath.Abs(outputPath); absErr == nil {
+		outputPath = absOut
 	}
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
@@ -74,32 +74,32 @@ func run(binary, driver, manifest, goBinary, pkg, out string, skipTests bool) (e
 	if _, statErr := os.Stat(".golangci.yml"); statErr == nil {
 		configFile = ".golangci.yml"
 	}
-	args := buildLintArgs("./"+filepath.ToSlash(pkg), out, skipTests, configFile)
-	cmd := exec.Command(binary, args...)
+	arguments := buildLintArgs("./"+filepath.ToSlash(packageDir), outputPath, skipTests, configFile)
+	cmd := exec.Command(binary, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = driverEnv(cacheDir, driver, manifest, goBinary)
 	if runErr := cmd.Run(); runErr != nil {
-		return sarif.WriteFailed(out, "golangci-lint", fmt.Sprintf("golangci-lint failed to run: %v", runErr))
+		return sarif.WriteFailed(outputPath, "golangci-lint", fmt.Sprintf("golangci-lint failed to run: %v", runErr))
 	}
-	return sarif.MarkSuccessful(out)
+	return sarif.MarkSuccessful(outputPath)
 }
 
-func buildLintArgs(pkg, out string, skipTests bool, configFile string) []string {
-	args := []string{
+func buildLintArgs(packageDir, outputPath string, skipTests bool, configFile string) []string {
+	arguments := []string{
 		"run",
-		pkg,
+		packageDir,
 		"--issues-exit-code=0",
 		"--allow-parallel-runners",
-		"--output.sarif.path=" + out,
+		"--output.sarif.path=" + outputPath,
 	}
 	if skipTests {
-		args = append(args, "--tests=false")
+		arguments = append(arguments, "--tests=false")
 	}
 	if configFile != "" {
-		args = append(args, "--config="+configFile)
+		arguments = append(arguments, "--config="+configFile)
 	}
-	return args
+	return arguments
 }
 
 // driverEnv builds golangci-lint's environment for hermetic, sandboxed
@@ -108,7 +108,7 @@ func buildLintArgs(pkg, out string, skipTests bool, configFile string) []string 
 // behind GOROOT. golangci-lint inherits these and forwards them to the driver
 // subprocess it spawns.
 func driverEnv(cacheDir, driver, manifest, goBinary string) []string {
-	env := []string{
+	environment := []string{
 		"PATH=" + binPath(goBinary),
 		"HOME=" + cacheDir,
 		"GOPROXY=off",
@@ -119,15 +119,15 @@ func driverEnv(cacheDir, driver, manifest, goBinary string) []string {
 		"GOLANGCI_LINT_CACHE=" + filepath.Join(cacheDir, "lint"),
 	}
 	if driver != "" {
-		env = append(env, "GOPACKAGESDRIVER="+absOrSelf(driver))
+		environment = append(environment, "GOPACKAGESDRIVER="+absOrSelf(driver))
 	}
 	if manifest != "" {
-		env = append(env, "GAVEL_PKG_JSON_MANIFEST="+absOrSelf(manifest))
+		environment = append(environment, "GAVEL_PKG_JSON_MANIFEST="+absOrSelf(manifest))
 	}
 	if goBinary != "" {
-		env = append(env, "GOROOT="+goRoot(goBinary))
+		environment = append(environment, "GOROOT="+goRoot(goBinary))
 	}
-	return env
+	return environment
 }
 
 // binPath puts the SDK's bin directory first so golangci-lint's auxiliary

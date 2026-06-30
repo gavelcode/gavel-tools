@@ -21,14 +21,14 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
-	out := flag.String("out", "", "SARIF output path")
+	outputFlag := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
 		return exitUsageError
 	}
-	if *out == "" {
+	if *outputFlag == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitUsageError
 	}
@@ -39,19 +39,19 @@ func execute() int {
 		return exitUsageError
 	}
 
-	if err := run(*config, *out, files); err != nil {
+	if err := run(*config, *outputFlag, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(configPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	cfg, err := archtest.LoadConfig(configPath)
+	config, err := archtest.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -60,10 +60,10 @@ func run(configPath, out string, files []string) error {
 
 	var allViolations []archtest.Violation
 	var failures []string
-	for _, file := range files {
-		violations, err := evaluateFile(file, cfg, modulePrefix)
+	for _, sourceFile := range files {
+		violations, err := evaluateFile(sourceFile, config, modulePrefix)
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", file, err))
+			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
 		}
 		allViolations = append(allViolations, violations...)
@@ -73,25 +73,25 @@ func run(configPath, out string, files []string) error {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := archtest.WriteSARIFWithInvocation(out, "gavel-archtest", allViolations, invocation); err != nil {
+	if err := archtest.WriteSARIFWithInvocation(outputPath, "gavel-archtest", allViolations, invocation); err != nil {
 		return fmt.Errorf("write sarif: %w", err)
 	}
 	return nil
 }
 
-func evaluateFile(file string, cfg archtest.Config, modulePrefix string) ([]archtest.Violation, error) {
-	pkgDir := filepath.Dir(file)
-	layer := archtest.MatchLayer(pkgDir, cfg.Layers)
+func evaluateFile(sourceFile string, config archtest.Config, modulePrefix string) ([]archtest.Violation, error) {
+	pkgDir := filepath.Dir(sourceFile)
+	layer := archtest.MatchLayer(pkgDir, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parseGoImports(file)
+	imports, err := parseGoImports(sourceFile)
 	if err != nil {
 		return nil, err
 	}
 
-	return archtest.EvaluateWithModule(file, layer, imports, cfg.Layers, cfg.Rules, modulePrefix), nil
+	return archtest.EvaluateWithModule(sourceFile, layer, imports, config.Layers, config.Rules, modulePrefix), nil
 }
 
 func detectModulePrefix() string {
@@ -108,89 +108,88 @@ func detectModulePrefix() string {
 }
 
 func parseGoImports(filePath string) (_ []archtest.Import, err error) {
-	file, err := os.Open(filePath)
+	sourceFile, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", filePath, err)
 	}
 	defer func() {
-		if closeErr := file.Close(); closeErr != nil && err == nil {
+		if closeErr := sourceFile.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
 	}()
 
 	var imports []archtest.Import
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(sourceFile)
 	lineNum := 0
 	inBlock := false
 	inBlockComment := false
 
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if inBlockComment {
-			if idx := strings.Index(trimmed, "*/"); idx >= 0 {
-				inBlockComment = false
-				trimmed = strings.TrimSpace(trimmed[idx+2:])
-				if trimmed == "" {
-					continue
-				}
-			} else {
-				continue
-			}
-		}
-
-		trimmed = stripBlockComments(trimmed)
-
-		if strings.HasPrefix(trimmed, "//") {
+		trimmed, skip := cleanCommentLine(strings.TrimSpace(scanner.Text()), &inBlockComment)
+		if skip {
 			continue
 		}
-
-		if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
-			inBlockComment = true
-			trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
-			if trimmed == "" {
-				continue
-			}
-		}
-
-		if inBlock {
-			if trimmed == ")" {
-				inBlock = false
-				continue
-			}
-
-			if imp, ok := extractImportPath(trimmed); ok {
-				if imp != "C" {
-					imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-				}
-			}
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "import (") {
-			inBlock = true
-			continue
-		}
-		if trimmed == "import(" {
-			inBlock = true
-			continue
-		}
-
-		if rest, ok := strings.CutPrefix(trimmed, "import "); ok {
-			if imp, ok := extractImportPath(rest); ok {
-				if imp != "C" {
-					imports = append(imports, archtest.Import{Path: imp, Line: lineNum})
-				}
-			}
-		}
+		inBlock = appendGoImportLine(trimmed, lineNum, inBlock, &imports)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan %s: %w", filePath, err)
 	}
 	return imports, nil
+}
+
+// cleanCommentLine advances the block-comment state and strips comments,
+// returning the code left on the line and whether the caller should skip it.
+func cleanCommentLine(trimmed string, inBlockComment *bool) (string, bool) {
+	if *inBlockComment {
+		idx := strings.Index(trimmed, "*/")
+		if idx < 0 {
+			return "", true
+		}
+		*inBlockComment = false
+		trimmed = strings.TrimSpace(trimmed[idx+2:])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	trimmed = stripBlockComments(trimmed)
+	if strings.HasPrefix(trimmed, "//") {
+		return "", true
+	}
+	if strings.Contains(trimmed, "/*") && !strings.Contains(trimmed, "*/") {
+		*inBlockComment = true
+		trimmed = strings.TrimSpace(trimmed[:strings.Index(trimmed, "/*")])
+		if trimmed == "" {
+			return "", true
+		}
+	}
+	return trimmed, false
+}
+
+// appendGoImportLine records any import on the line and returns whether the
+// parser is inside an `import (` block after it.
+func appendGoImportLine(trimmed string, lineNum int, inBlock bool, imports *[]archtest.Import) bool {
+	if inBlock {
+		if trimmed == ")" {
+			return false
+		}
+		addGoImport(trimmed, lineNum, imports)
+		return true
+	}
+	if strings.HasPrefix(trimmed, "import (") || trimmed == "import(" {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "import "); ok {
+		addGoImport(rest, lineNum, imports)
+	}
+	return false
+}
+
+func addGoImport(source string, lineNum int, imports *[]archtest.Import) {
+	if imp, ok := extractImportPath(source); ok && imp != "C" {
+		*imports = append(*imports, archtest.Import{Path: imp, Line: lineNum})
+	}
 }
 
 func extractImportPath(source string) (string, bool) {

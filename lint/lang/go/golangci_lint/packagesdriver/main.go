@@ -49,6 +49,9 @@ const (
 	// carries unused imports, so linting it yields false positives — it must
 	// never be analyzed, only the real test sources.
 	testMainFile = "testmain.go"
+	// bufio scanner limits for the manifest (one path per line).
+	manifestBufferInitial = 64 * 1024
+	manifestBufferMax     = 1024 * 1024
 )
 
 // FlatPackage is the JSON shape shared by rules_go's pkg.json files and the
@@ -105,46 +108,46 @@ func run(manifestPath, execRoot string, patterns []string) (*driverResponse, err
 		return nil, err
 	}
 
-	pkgs, err := loadPackages(jsonFiles, execRoot)
+	packages, err := loadPackages(jsonFiles, execRoot)
 	if err != nil {
 		return nil, err
 	}
 
 	stdlibByPath := map[string]string{}
-	for _, pkg := range pkgs {
-		if pkg.Standard {
-			stdlibByPath[pkg.PkgPath] = pkg.ID
+	for _, flatPackage := range packages {
+		if flatPackage.Standard {
+			stdlibByPath[flatPackage.PkgPath] = flatPackage.ID
 		}
 	}
 
-	fset := token.NewFileSet()
+	fileSet := token.NewFileSet()
 	var extras []*FlatPackage
-	for _, pkg := range pkgs {
-		resolveImports(pkg, stdlibByPath, fset)
-		if xtest := moveTestFiles(pkg, fset); xtest != nil {
+	for _, flatPackage := range packages {
+		resolveImports(flatPackage, stdlibByPath, fileSet)
+		if xtest := moveTestFiles(flatPackage, fileSet); xtest != nil {
 			extras = append(extras, xtest)
 		}
 	}
-	pkgs = append(pkgs, extras...)
+	packages = append(packages, extras...)
 
 	return &driverResponse{
 		Compiler: "gc",
 		Arch:     runtime.GOARCH,
-		Roots:    matchRoots(patterns, pkgs, execRoot),
-		Packages: pkgs,
+		Roots:    matchRoots(patterns, packages, execRoot),
+		Packages: packages,
 	}, nil
 }
 
 func readManifest(path string) ([]string, error) {
-	f, err := os.Open(path)
+	manifestFile, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open manifest: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = manifestFile.Close() }()
 
 	var files []string
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner := bufio.NewScanner(manifestFile)
+	scanner.Buffer(make([]byte, 0, manifestBufferInitial), manifestBufferMax)
 	for scanner.Scan() {
 		if line := strings.TrimSpace(scanner.Text()); line != "" {
 			files = append(files, line)
@@ -159,99 +162,100 @@ func readManifest(path string) ([]string, error) {
 // testmain and the real test sources — so same-ID packages are merged rather
 // than dropped; otherwise the sources (the files we must lint) would be lost.
 func loadPackages(jsonFiles []string, execRoot string) ([]*FlatPackage, error) {
-	byID := map[string]*FlatPackage{}
-	var pkgs []*FlatPackage
-	for _, jf := range jsonFiles {
-		f, err := os.Open(jf)
+	packagesByID := map[string]*FlatPackage{}
+	var packages []*FlatPackage
+	for _, jsonPath := range jsonFiles {
+		jsonFile, err := os.Open(jsonPath)
 		if err != nil {
-			return nil, fmt.Errorf("open %s: %w", jf, err)
+			return nil, fmt.Errorf("open %s: %w", jsonPath, err)
 		}
-		dec := json.NewDecoder(f)
-		for dec.More() {
-			pkg := &FlatPackage{}
-			if err := dec.Decode(pkg); err != nil {
-				f.Close()
-				return nil, fmt.Errorf("decode %s: %w", jf, err)
+		decoder := json.NewDecoder(jsonFile)
+		for decoder.More() {
+			flatPackage := &FlatPackage{}
+			if err := decoder.Decode(flatPackage); err != nil {
+				_ = jsonFile.Close()
+				return nil, fmt.Errorf("decode %s: %w", jsonPath, err)
 			}
-			resolvePaths(pkg, execRoot)
-			if existing, ok := byID[pkg.ID]; ok {
-				mergePackage(existing, pkg)
+			resolvePaths(flatPackage, execRoot)
+			if existing, ok := packagesByID[flatPackage.ID]; ok {
+				mergePackage(existing, flatPackage)
 				continue
 			}
-			byID[pkg.ID] = pkg
-			pkgs = append(pkgs, pkg)
+			packagesByID[flatPackage.ID] = flatPackage
+			packages = append(packages, flatPackage)
 		}
-		f.Close()
+		_ = jsonFile.Close()
 	}
-	return pkgs, nil
+	return packages, nil
 }
 
-// mergePackage folds src into dst, unioning file lists and imports. Used to
-// reunite a go_test's testmain with its test sources under their shared ID.
-func mergePackage(dst, src *FlatPackage) {
-	dst.GoFiles = unionFiles(dst.GoFiles, src.GoFiles)
-	dst.CompiledGoFiles = unionFiles(dst.CompiledGoFiles, src.CompiledGoFiles)
-	dst.OtherFiles = unionFiles(dst.OtherFiles, src.OtherFiles)
-	if dst.PkgPath == "" {
-		dst.PkgPath = src.PkgPath
+// mergePackage folds source into destination, unioning file lists and imports.
+// Used to reunite a go_test's testmain with its test sources under their shared
+// ID.
+func mergePackage(destination, source *FlatPackage) {
+	destination.GoFiles = unionFiles(destination.GoFiles, source.GoFiles)
+	destination.CompiledGoFiles = unionFiles(destination.CompiledGoFiles, source.CompiledGoFiles)
+	destination.OtherFiles = unionFiles(destination.OtherFiles, source.OtherFiles)
+	if destination.PkgPath == "" {
+		destination.PkgPath = source.PkgPath
 	}
-	if dst.ExportFile == "" {
-		dst.ExportFile = src.ExportFile
+	if destination.ExportFile == "" {
+		destination.ExportFile = source.ExportFile
 	}
-	for k, v := range src.Imports {
-		if dst.Imports == nil {
-			dst.Imports = map[string]string{}
+	for importPath, packageID := range source.Imports {
+		if destination.Imports == nil {
+			destination.Imports = map[string]string{}
 		}
-		if _, ok := dst.Imports[k]; !ok {
-			dst.Imports[k] = v
+		if _, ok := destination.Imports[importPath]; !ok {
+			destination.Imports[importPath] = packageID
 		}
 	}
 }
 
-func unionFiles(a, b []string) []string {
+func unionFiles(first, second []string) []string {
 	seen := map[string]bool{}
-	out := make([]string, 0, len(a)+len(b))
-	for _, f := range append(append([]string{}, a...), b...) {
-		if !seen[f] {
-			seen[f] = true
-			out = append(out, f)
+	union := make([]string, 0, len(first)+len(second))
+	for _, file := range append(append([]string{}, first...), second...) {
+		if !seen[file] {
+			seen[file] = true
+			union = append(union, file)
 		}
 	}
-	return out
+	return union
 }
 
-func resolvePaths(pkg *FlatPackage, execRoot string) {
-	resolveSlice(pkg.GoFiles, execRoot)
-	resolveSlice(pkg.CompiledGoFiles, execRoot)
-	resolveSlice(pkg.OtherFiles, execRoot)
-	pkg.ExportFile = resolvePath(pkg.ExportFile, execRoot)
-	pkg.GoFiles = dropGenerated(pkg.GoFiles)
-	pkg.CompiledGoFiles = dropGenerated(filterBuildTags(pkg.CompiledGoFiles))
+func resolvePaths(flatPackage *FlatPackage, execRoot string) {
+	resolveSlice(flatPackage.GoFiles, execRoot)
+	resolveSlice(flatPackage.CompiledGoFiles, execRoot)
+	resolveSlice(flatPackage.OtherFiles, execRoot)
+	flatPackage.ExportFile = resolvePath(flatPackage.ExportFile, execRoot)
+	flatPackage.GoFiles = dropGenerated(flatPackage.GoFiles)
+	flatPackage.CompiledGoFiles = dropGenerated(filterBuildTags(flatPackage.CompiledGoFiles))
 }
 
 func dropGenerated(files []string) []string {
-	kept := make([]string, 0, len(files))
+	keptFiles := make([]string, 0, len(files))
 	for _, f := range files {
 		if filepath.Base(f) != testMainFile {
-			kept = append(kept, f)
+			keptFiles = append(keptFiles, f)
 		}
 	}
-	return kept
+	return keptFiles
 }
 
 // filterBuildTags keeps only the files the host build context selects, plus
 // extension-less and cgo-processed files, which MatchFile rejects but the
 // type checker needs.
 func filterBuildTags(files []string) []string {
-	kept := make([]string, 0, len(files))
+	keptFiles := make([]string, 0, len(files))
 	for _, f := range files {
 		dir, name := filepath.Split(f)
 		match, _ := buildContext.MatchFile(dir, name)
 		if match || filepath.Ext(f) == "" || isCgoProcessed(name) {
-			kept = append(kept, f)
+			keptFiles = append(keptFiles, f)
 		}
 	}
-	return kept
+	return keptFiles
 }
 
 func isCgoProcessed(name string) bool {
@@ -267,16 +271,16 @@ func resolveSlice(paths []string, execRoot string) {
 // resolvePath rewrites the three Bazel placeholders to the exec root. Inside a
 // sandbox the workspace, exec root and external output base all live under the
 // action's working directory, so all three collapse to execRoot.
-func resolvePath(p, execRoot string) string {
-	if p == "" {
+func resolvePath(rawPath, execRoot string) string {
+	if rawPath == "" {
 		return ""
 	}
 	for _, placeholder := range []string{execrootPlaceholder, workspacePlaceholder, outputBasePlaceholder} {
-		if strings.HasPrefix(p, placeholder) {
-			return filepath.Join(execRoot, strings.TrimPrefix(p, placeholder))
+		if strings.HasPrefix(rawPath, placeholder) {
+			return filepath.Join(execRoot, strings.TrimPrefix(rawPath, placeholder))
 		}
 	}
-	return p
+	return rawPath
 }
 
 // resolveImports parses each compiled file's import clauses and links stdlib
@@ -284,28 +288,28 @@ func resolvePath(p, execRoot string) string {
 // Dependency type info comes from each package's ExportFile, so a file that
 // cannot be parsed is skipped rather than failing the whole graph — only its
 // stdlib edges are lost, which the type checker recovers from export data.
-func resolveImports(pkg *FlatPackage, stdlibByPath map[string]string, fset *token.FileSet) {
-	for _, file := range pkg.CompiledGoFiles {
-		f, err := parser.ParseFile(fset, file, nil, parser.ImportsOnly)
+func resolveImports(flatPackage *FlatPackage, stdlibByPath map[string]string, fileSet *token.FileSet) {
+	for _, sourceFile := range flatPackage.CompiledGoFiles {
+		astFile, err := parser.ParseFile(fileSet, sourceFile, nil, parser.ImportsOnly)
 		if err != nil {
 			continue
 		}
-		if pkg.Name == "" {
-			pkg.Name = f.Name.Name
+		if flatPackage.Name == "" {
+			flatPackage.Name = astFile.Name.Name
 		}
-		for _, raw := range f.Imports {
-			imp, err := strconv.Unquote(raw.Path.Value)
-			if err != nil || imp == "C" {
+		for _, rawImport := range astFile.Imports {
+			importPath, err := strconv.Unquote(rawImport.Path.Value)
+			if err != nil || importPath == "C" {
 				continue
 			}
-			if _, ok := pkg.Imports[imp]; ok {
+			if _, ok := flatPackage.Imports[importPath]; ok {
 				continue
 			}
-			if id, ok := stdlibByPath[imp]; ok {
-				if pkg.Imports == nil {
-					pkg.Imports = map[string]string{}
+			if stdlibID, ok := stdlibByPath[importPath]; ok {
+				if flatPackage.Imports == nil {
+					flatPackage.Imports = map[string]string{}
 				}
-				pkg.Imports[imp] = id
+				flatPackage.Imports[importPath] = stdlibID
 			}
 		}
 	}
@@ -314,44 +318,44 @@ func resolveImports(pkg *FlatPackage, stdlibByPath map[string]string, fset *toke
 // moveTestFiles splits external test files (package foo_test) into their own
 // package, mirroring go/packages. gavel's tests are black-box, so without this
 // golangci-lint would mis-attribute their findings.
-func moveTestFiles(pkg *FlatPackage, fset *token.FileSet) *FlatPackage {
-	internalGo, externalGo := splitExternalTests(pkg.Name, pkg.GoFiles, fset)
-	internalCompiled, externalCompiled := splitExternalTests(pkg.Name, pkg.CompiledGoFiles, fset)
+func moveTestFiles(flatPackage *FlatPackage, fileSet *token.FileSet) *FlatPackage {
+	internalGo, externalGo := splitExternalTests(flatPackage.Name, flatPackage.GoFiles, fileSet)
+	internalCompiled, externalCompiled := splitExternalTests(flatPackage.Name, flatPackage.CompiledGoFiles, fileSet)
 	if len(externalGo) == 0 && len(externalCompiled) == 0 {
 		return nil
 	}
-	pkg.GoFiles = internalGo
-	pkg.CompiledGoFiles = internalCompiled
+	flatPackage.GoFiles = internalGo
+	flatPackage.CompiledGoFiles = internalCompiled
 
 	imports := map[string]string{}
-	for k, v := range pkg.Imports {
-		imports[k] = v
+	for importPath, packageID := range flatPackage.Imports {
+		imports[importPath] = packageID
 	}
-	imports[pkg.PkgPath] = pkg.ID
+	imports[flatPackage.PkgPath] = flatPackage.ID
 
 	return &FlatPackage{
-		ID:              pkg.ID + "_xtest",
-		Name:            pkg.Name + "_test",
-		PkgPath:         pkg.PkgPath + "_test",
+		ID:              flatPackage.ID + "_xtest",
+		Name:            flatPackage.Name + "_test",
+		PkgPath:         flatPackage.PkgPath + "_test",
 		GoFiles:         externalGo,
 		CompiledGoFiles: externalCompiled,
-		OtherFiles:      pkg.OtherFiles,
-		ExportFile:      pkg.ExportFile,
+		OtherFiles:      flatPackage.OtherFiles,
+		ExportFile:      flatPackage.ExportFile,
 		Imports:         imports,
 	}
 }
 
-func splitExternalTests(pkgName string, files []string, fset *token.FileSet) (internal, external []string) {
-	for _, file := range files {
-		if !strings.HasSuffix(file, testSuffix) {
-			internal = append(internal, file)
+func splitExternalTests(pkgName string, files []string, fileSet *token.FileSet) (internal, external []string) {
+	for _, sourceFile := range files {
+		if !strings.HasSuffix(sourceFile, testSuffix) {
+			internal = append(internal, sourceFile)
 			continue
 		}
-		f, err := parser.ParseFile(fset, file, nil, parser.PackageClauseOnly)
-		if err == nil && f.Name.Name != pkgName {
-			external = append(external, file)
+		astFile, err := parser.ParseFile(fileSet, sourceFile, nil, parser.PackageClauseOnly)
+		if err == nil && astFile.Name.Name != pkgName {
+			external = append(external, sourceFile)
 		} else {
-			internal = append(internal, file)
+			internal = append(internal, sourceFile)
 		}
 	}
 	return internal, external
@@ -359,10 +363,10 @@ func splitExternalTests(pkgName string, files []string, fset *token.FileSet) (in
 
 // matchRoots maps the patterns go/packages passes (file= queries or directory
 // patterns) to the package IDs whose sources satisfy them.
-func matchRoots(patterns []string, pkgs []*FlatPackage, execRoot string) []string {
+func matchRoots(patterns []string, packages []*FlatPackage, execRoot string) []string {
 	var roots []string
 	seen := map[string]bool{}
-	add := func(id string) {
+	addRoot := func(id string) {
 		if id != "" && !seen[id] {
 			seen[id] = true
 			roots = append(roots, id)
@@ -370,37 +374,37 @@ func matchRoots(patterns []string, pkgs []*FlatPackage, execRoot string) []strin
 	}
 	for _, pattern := range patterns {
 		if file, ok := strings.CutPrefix(pattern, filePrefix); ok {
-			matchFile(absFrom(file, execRoot), pkgs, add)
+			matchFile(absFrom(file, execRoot), packages, addRoot)
 			continue
 		}
 		pattern = strings.TrimPrefix(pattern, patternPrefix)
 		recursive := strings.HasSuffix(pattern, recursiveSuffix)
-		dir := absFrom(strings.TrimSuffix(strings.TrimSuffix(pattern, recursiveSuffix), "/"), execRoot)
-		matchDir(dir, recursive, pkgs, add)
+		directory := absFrom(strings.TrimSuffix(strings.TrimSuffix(pattern, recursiveSuffix), "/"), execRoot)
+		matchDir(directory, recursive, packages, addRoot)
 	}
 	return roots
 }
 
-func matchFile(file string, pkgs []*FlatPackage, add func(string)) {
-	for _, pkg := range pkgs {
-		for _, f := range append(append([]string{}, pkg.GoFiles...), pkg.CompiledGoFiles...) {
-			if f == file {
-				add(pkg.ID)
+func matchFile(file string, packages []*FlatPackage, addRoot func(string)) {
+	for _, flatPackage := range packages {
+		for _, candidate := range append(append([]string{}, flatPackage.GoFiles...), flatPackage.CompiledGoFiles...) {
+			if candidate == file {
+				addRoot(flatPackage.ID)
 				return
 			}
 		}
 	}
 }
 
-func matchDir(dir string, recursive bool, pkgs []*FlatPackage, add func(string)) {
-	for _, pkg := range pkgs {
-		if pkg.Standard {
+func matchDir(directory string, recursive bool, packages []*FlatPackage, addRoot func(string)) {
+	for _, flatPackage := range packages {
+		if flatPackage.Standard {
 			continue
 		}
-		for _, f := range pkg.CompiledGoFiles {
-			fdir := filepath.Dir(f)
-			if fdir == dir || (recursive && strings.HasPrefix(fdir, dir+string(filepath.Separator))) {
-				add(pkg.ID)
+		for _, sourceFile := range flatPackage.CompiledGoFiles {
+			fileDir := filepath.Dir(sourceFile)
+			if fileDir == directory || (recursive && strings.HasPrefix(fileDir, directory+string(filepath.Separator))) {
+				addRoot(flatPackage.ID)
 				break
 			}
 		}

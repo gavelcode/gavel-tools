@@ -1,0 +1,32 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - mnd
+    - varnamelen
+    - funlen
+    - cyclop
+  settings:
+    varnamelen:
+      min-name-length: 5
+      ignore-decls: [ctx context.Context, err error, t *testing.T]
+    mnd:
+      ignored-numbers: ["0", "1", "2"]
+    funlen:
+      lines: 60
+      statements: 40
+    cyclop:
+      max-complexity: 10
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [funlen, cyclop, mnd, varnamelen]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

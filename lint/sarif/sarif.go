@@ -33,12 +33,12 @@ func Successful() Invocation {
 // consumer has enough to fix the environment; every note becomes an error-level
 // toolExecutionNotification.
 func Failed(notes ...string) Invocation {
-	inv := Invocation{ExecutionSuccessful: false}
+	invocation := Invocation{ExecutionSuccessful: false}
 	for _, note := range notes {
-		inv.ToolExecutionNotifications = append(inv.ToolExecutionNotifications, Notification{
+		invocation.ToolExecutionNotifications = append(invocation.ToolExecutionNotifications, Notification{
 			Level:   "error",
 			Message: Message{Text: note},
 		})
 	}
-	return inv
+	return invocation
 }

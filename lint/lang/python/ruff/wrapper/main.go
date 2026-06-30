@@ -20,11 +20,11 @@ const (
 func main() { os.Exit(execute()) }
 
 func execute() int {
-	ruff := flag.String("ruff", "", "Path to the pinned Ruff executable")
-	out := flag.String("out", "", "SARIF output path")
+	ruffPath := flag.String("ruff", "", "Path to the pinned Ruff executable")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
 
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeMisuse
 	}
@@ -34,55 +34,55 @@ func execute() int {
 		return exitCodeMisuse
 	}
 
-	if err := run(*ruff, *out, files); err != nil {
+	if err := run(*ruffPath, *outputPath, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run ruff: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(ruff, out string, files []string) error {
-	if err := os.MkdirAll(filepath.Dir(out), dirPermission); err != nil {
+func run(ruffPath, outputPath string, files []string) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if ruff == "" {
+	if ruffPath == "" {
 		bin, err := exec.LookPath("ruff")
 		if err != nil {
 			return errors.New("ruff not found in PATH and --ruff was not provided")
 		}
-		ruff = bin
+		ruffPath = bin
 	}
-	ruff = resolveBazelExternal(ruff)
+	ruffPath = resolveBazelExternal(ruffPath)
 
-	args := buildArgs(out, files)
-	cmd := exec.Command(ruff, args...)
+	arguments := buildArgs(outputPath, files)
+	cmd := exec.Command(ruffPath, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
 	if err := cmd.Run(); err != nil {
-		return sarif.WriteFailed(out, "ruff", fmt.Sprintf("ruff failed to run: %v", err))
+		return sarif.WriteFailed(outputPath, "ruff", fmt.Sprintf("ruff failed to run: %v", err))
 	}
-	return sarif.MarkSuccessful(out)
+	return sarif.MarkSuccessful(outputPath)
 }
 
-func buildArgs(out string, files []string) []string {
-	args := []string{
+func buildArgs(outputPath string, files []string) []string {
+	arguments := []string{
 		"check",
 		"--output-format=sarif",
 		"--no-fix",
 		"--exit-zero",
-		"--output-file=" + out,
+		"--output-file=" + outputPath,
 	}
-	return append(args, files...)
+	return append(arguments, files...)
 }
 
-func resolveBazelExternal(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
+func resolveBazelExternal(filePath string) string {
+	if _, err := os.Stat(filePath); err == nil {
+		return filePath
 	}
-	if suffix, ok := strings.CutPrefix(path, "external/"); ok {
-		alternate := filepath.Join("..", "..", path)
+	if suffix, ok := strings.CutPrefix(filePath, "external/"); ok {
+		alternate := filepath.Join("..", "..", filePath)
 		if _, err := os.Stat(alternate); err == nil {
 			return alternate
 		}
@@ -91,5 +91,5 @@ func resolveBazelExternal(path string) string {
 			return matches[0]
 		}
 	}
-	return path
+	return filePath
 }

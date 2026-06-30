@@ -94,9 +94,9 @@ func main() { os.Exit(execute()) }
 
 func execute() int {
 	python := flag.String("python", "", "Path to the python3 binary")
-	out := flag.String("out", "", "SARIF output path")
+	outputPath := flag.String("out", "", "SARIF output path")
 	flag.Parse()
-	if *out == "" {
+	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "--out is required")
 		return exitCodeMisuse
 	}
@@ -108,7 +108,7 @@ func execute() int {
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)
 	}
-	if err := writeSARIF(*out, findings, invocation); err != nil {
+	if err := writeSARIF(*outputPath, findings, invocation); err != nil {
 		fmt.Fprintf(os.Stderr, "write SARIF: %v\n", err)
 		return 1
 	}
@@ -118,13 +118,13 @@ func execute() int {
 func analyze(paths []string) ([]finding, []string) {
 	findings := make([]finding, 0)
 	var failures []string
-	for _, path := range paths {
-		compiled, failure := compileFindings(path)
+	for _, filePath := range paths {
+		compiled, failure := compileFindings(filePath)
 		findings = append(findings, compiled...)
 		if failure != "" {
 			failures = append(failures, failure)
 		}
-		findings = append(findings, evalFindings(path)...)
+		findings = append(findings, evalFindings(filePath)...)
 	}
 	return findings, failures
 }
@@ -139,8 +139,8 @@ func resolvePython(explicit string) string {
 	return "python3"
 }
 
-func compileFindings(path string) ([]finding, string) {
-	cmd := exec.Command(pythonBinary, "-m", "py_compile", path)
+func compileFindings(filePath string) ([]finding, string) {
+	cmd := exec.Command(pythonBinary, "-m", "py_compile", filePath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -153,21 +153,21 @@ func compileFindings(path string) ([]finding, string) {
 		// The interpreter itself could not run — a tool failure, not a user
 		// syntax error — so it must surface as executionSuccessful=false, never
 		// as a finding.
-		return nil, fmt.Sprintf("py_compile could not run the interpreter on %s: %v", path, err)
+		return nil, fmt.Sprintf("py_compile could not run the interpreter on %s: %v", filePath, err)
 	}
 
-	line := parsePythonErrorLine(stderr.String())
+	lineNumber := parsePythonErrorLine(stderr.String())
 	return []finding{{
 		RuleID:  "python/pycompile",
 		Level:   "error",
 		Message: strings.TrimSpace(stderr.String()),
-		File:    path,
-		Line:    line,
+		File:    filePath,
+		Line:    lineNumber,
 	}}, ""
 }
 
-func evalFindings(path string) []finding {
-	body, err := os.ReadFile(path)
+func evalFindings(filePath string) []finding {
+	body, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func evalFindings(path string) []finding {
 				RuleID:  "python/builtin-eval",
 				Level:   "warning",
 				Message: "Use of eval executes dynamic code and should be avoided unless strictly controlled.",
-				File:    path,
+				File:    filePath,
 				Line:    index + 1,
 			})
 		}
@@ -201,23 +201,23 @@ func parsePythonErrorLine(stderr string) int {
 	return line
 }
 
-func writeSARIF(path string, findings []finding, invocation sarif.Invocation) error {
+func writeSARIF(filePath string, findings []finding, invocation sarif.Invocation) error {
 	results := make([]sarifResult, 0, len(findings))
-	for _, item := range findings {
+	for _, findingEntry := range findings {
 		results = append(results, sarifResult{
-			RuleID:  item.RuleID,
-			Level:   item.Level,
-			Message: sarifMessage{Text: item.Message},
+			RuleID:  findingEntry.RuleID,
+			Level:   findingEntry.Level,
+			Message: sarifMessage{Text: findingEntry.Message},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
-					ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(item.File)},
-					Region:           sarifRegion{StartLine: item.Line},
+					ArtifactLocation: sarifArtifactLocation{URI: filepath.ToSlash(findingEntry.File)},
+					Region:           sarifRegion{StartLine: findingEntry.Line},
 				},
 			}},
 		})
 	}
 
-	log := sarifLog{
+	sarifDoc := sarifLog{
 		Version: "2.1.0",
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
 		Runs: []sarifRun{{
@@ -241,12 +241,12 @@ func writeSARIF(path string, findings []finding, invocation sarif.Invocation) er
 		}},
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), dirPermission); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filePath), dirPermission); err != nil {
 		return err
 	}
-	body, err := json.MarshalIndent(log, "", "  ")
+	body, err := json.MarshalIndent(sarifDoc, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(body, '\n'), filePermission)
+	return os.WriteFile(filePath, append(body, '\n'), filePermission)
 }
