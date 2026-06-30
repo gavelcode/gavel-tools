@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gavelcode/gavel-tools/lint/lang/typescript/eslint/converter"
 	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
@@ -74,26 +75,58 @@ func run(eslint, out, config string, files []string) error {
 		out = absOut
 	}
 
-	args := buildArgs(out, config, absFiles)
+	if config != "" {
+		if absConfig, absErr := filepath.Abs(config); absErr == nil {
+			config = absConfig
+		}
+	}
+
+	jsonReport, err := os.CreateTemp("", "gavel-eslint-*.json")
+	if err != nil {
+		return fmt.Errorf("create report file: %w", err)
+	}
+	reportPath := jsonReport.Name()
+	jsonReport.Close()
+	defer func() { _ = os.Remove(reportPath) }()
+
+	args := buildArgs(reportPath, config, absFiles)
 	cmd := exec.Command(eslint, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = eslintEnv(eslint)
-	err = cmd.Run()
-	if err != nil && !isLintExitCode(err) {
-		reason := fmt.Sprintf("eslint failed to run: %v", err)
-		if isMisconfiguration(err) {
-			reason = fmt.Sprintf("eslint configuration error (exit 2): %v", err)
+	runErr := cmd.Run()
+	if runErr != nil && !isLintExitCode(runErr) {
+		reason := fmt.Sprintf("eslint failed to run: %v", runErr)
+		if isMisconfiguration(runErr) {
+			reason = fmt.Sprintf("eslint configuration error (exit 2): %v", runErr)
 		}
 		return sarif.WriteFailed(out, "eslint", reason)
 	}
-	return sarif.MarkSuccessful(out)
+	return convertReport(reportPath, out)
 }
 
-func buildArgs(out, config string, files []string) []string {
+// convertReport turns ESLint's JSON report into SARIF. The built-in `json`
+// formatter is used (not the npm SARIF formatter, which does not resolve inside
+// the sandbox), so conversion happens here.
+func convertReport(reportPath, out string) error {
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		return sarif.WriteFailed(out, "eslint", fmt.Sprintf("read eslint report: %v", err))
+	}
+	sarifBytes, err := converter.Convert(data)
+	if err != nil {
+		return sarif.WriteFailed(out, "eslint", fmt.Sprintf("convert eslint report: %v", err))
+	}
+	if err := os.WriteFile(out, sarifBytes, filePermission); err != nil {
+		return fmt.Errorf("write sarif: %w", err)
+	}
+	return nil
+}
+
+func buildArgs(reportPath, config string, files []string) []string {
 	args := []string{
-		"--format", "@microsoft/eslint-formatter-sarif",
-		"--output-file", out,
+		"--format", "json",
+		"--output-file", reportPath,
 	}
 	if config != "" {
 		args = append(args, "--config", config)

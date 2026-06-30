@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/gavelcode/gavel-tools/lint/lang/typescript/eslint/wrapper",
     visibility = ["//visibility:private"],
-    deps = ["//lint/sarif"],
+    deps = [
+        "//lint/lang/typescript/eslint/converter",
+        "//lint/sarif",
+    ],
 )
 
 go_binary(

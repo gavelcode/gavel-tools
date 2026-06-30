@@ -31,7 +31,7 @@ func setArgs(t *testing.T, args []string) {
 const fakeEslintEmit = `#!/bin/sh
 prev=""
 for a in "$@"; do [ "$prev" = "--output-file" ] && o="$a"; prev="$a"; done
-[ -n "$o" ] && printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"eslint"}},"results":[]}]}' > "$o"
+[ -n "$o" ] && printf '[]' > "$o"
 `
 
 func writeFakeEslint(t *testing.T, exitCode int) string {
@@ -91,11 +91,11 @@ func TestExecute_Success(t *testing.T) {
 }
 
 func TestBuildArgs_WithConfig(t *testing.T) {
-	got := buildArgs("/tmp/out.sarif", "eslint.config.js", []string{"src/app.tsx", "src/main.ts"})
+	got := buildArgs("/tmp/report.json", "eslint.config.js", []string{"src/app.tsx", "src/main.ts"})
 
 	assert.Equal(t, []string{
-		"--format", "@microsoft/eslint-formatter-sarif",
-		"--output-file", "/tmp/out.sarif",
+		"--format", "json",
+		"--output-file", "/tmp/report.json",
 		"--config", "eslint.config.js",
 		"src/app.tsx",
 		"src/main.ts",
@@ -103,11 +103,11 @@ func TestBuildArgs_WithConfig(t *testing.T) {
 }
 
 func TestBuildArgs_WithoutConfig(t *testing.T) {
-	got := buildArgs("/tmp/out.sarif", "", []string{"src/app.tsx"})
+	got := buildArgs("/tmp/report.json", "", []string{"src/app.tsx"})
 
 	assert.Equal(t, []string{
-		"--format", "@microsoft/eslint-formatter-sarif",
-		"--output-file", "/tmp/out.sarif",
+		"--format", "json",
+		"--output-file", "/tmp/report.json",
 		"src/app.tsx",
 	}, got)
 }

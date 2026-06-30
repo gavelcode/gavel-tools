@@ -85,6 +85,15 @@ build environment" above). The lesson generalizes: before reaching for
 `no-sandbox`, ask whether the environment the tool needs is already a Bazel
 artifact you can declare.
 
+ESLint proved the same point in the JS ecosystem. It looked source-only, but its
+flat config `import`s the consumer's plugins (`react-hooks`, `typescript-eslint`,
+…) — a per-project graph, not a fixed set gavel can bundle. The aspect runs on
+the consumer's `js_library`/`ts_project` and harvests those plugins from
+**`JsInfo.npm_sources`** — the rules_js twin of Go's `GoPkgInfo` — declaring them
+as sandboxed inputs so gavel's pinned ESLint resolves them with no host access.
+ESLint's npm SARIF formatter does not resolve inside the sandbox, so the wrapper
+runs the built-in `json` formatter and converts to SARIF in Go (as Clippy does).
+
 ## Tier assignment (audited from the aspect implementations)
 
 All of these are **native** wrappers (they emit each tool's native SARIF — see
@@ -100,7 +109,7 @@ whether `no-sandbox` is load-bearing.
 | SpotBugs (java) | `runtime_output_jars` (bytecode) | semantic-ish (jars are Bazel inputs) |
 | Ruff (python) | standalone binary, source AST | **incidental** → should be sandboxed |
 | PMD (java) | `srcs + config` only | **incidental** → should be sandboxed |
-| ESLint (ts) | `srcs + config` | **incidental** → should be sandboxed |
+| **ESLint** (ts) | flat config + the consumer's plugins, via `JsInfo.npm_sources` | **none** → sandboxed (JsInfo harvest) |
 | Bandit (python) | source AST + python | **incidental** → should be sandboxed |
 | CPD (java) | source (copy-paste) | **incidental** → should be sandboxed |
 | Clippy (rust) | wraps `rust_clippy_aspect` (already sandboxed) | n/a |

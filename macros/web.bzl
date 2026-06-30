@@ -20,6 +20,7 @@ backend, and dev (watch/HMR) is run outside Bazel.
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 
 _DEFAULT_ESBUILD_CONFIG = {
     "jsx": "automatic",
@@ -132,6 +133,15 @@ def web_project(
         args = ["--config", eslint_config, "src/"],
         chdir = native.package_name(),
         data = ts_srcs + config_srcs + runtime + types + lint,
+    )
+
+    # Lintable unit for the hermetic gavel ESLint aspect: carries the sources,
+    # the flat config and the plugins on JsInfo so the aspect can harvest them
+    # as declared, sandboxed inputs (the aspect — not this macro — emits SARIF).
+    js_library(
+        name = name + ".lint_srcs",
+        srcs = ts_srcs + config_srcs,
+        deps = lint + runtime + types,
     )
 
 def _copy(name, out, src):
