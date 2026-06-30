@@ -62,6 +62,12 @@ load("@gavel_tools//macros:web.bzl", "web_project")
 | TypeScript | ESLint, archtest |
 | Rust       | Clippy, archtest |
 
+> ⚠️ **Go users:** the hermetic golangci-lint aspect carries a gavel-owned static
+> `gopackagesdriver` coupled to rules_go and golangci-lint internals, and needs
+> `--@rules_go//go/config:export_stdlib=True`. **Re-validate it whenever you bump
+> `rules_go` or `golangci-lint`** — see the maintenance contract in
+> [the sandbox axis](docs/tier-model.md#materializing-the-build-environment-the-hermetic-golangci-lint).
+
 ## Documentation
 
 The [`docs/`](docs/index.md) bundle explains the design — the sandbox axis, the
