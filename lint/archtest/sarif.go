@@ -18,11 +18,6 @@ const (
 	filePermission = 0o644
 )
 
-// WriteSARIF writes a report for a complete (trustworthy) analysis run.
-func WriteSARIF(path, toolName string, violations []Violation) error {
-	return WriteSARIFWithInvocation(path, toolName, violations, sarif.Successful())
-}
-
 // WriteSARIFWithInvocation writes the report carrying an explicit invocation, so
 // a wrapper that could only analyze its inputs partially can record
 // executionSuccessful=false and why, instead of failing silently.

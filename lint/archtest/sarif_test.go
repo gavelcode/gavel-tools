@@ -10,7 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gavelcode/gavel-tools/lint/archtest"
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
+
+// writeSARIF reports a complete (trustworthy) run. It is a test-only
+// convenience over the production WriteSARIFWithInvocation, which always takes
+// an explicit invocation so wrappers can record partial analyses.
+func writeSARIF(path, toolName string, violations []archtest.Violation) error {
+	return archtest.WriteSARIFWithInvocation(path, toolName, violations, sarif.Successful())
+}
 
 func TestWriteSARIF(t *testing.T) {
 	tests := []struct {
@@ -80,7 +88,7 @@ func TestWriteSARIF(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			outPath := filepath.Join(t.TempDir(), "output.sarif")
-			err := archtest.WriteSARIF(outPath, testCase.toolName, testCase.violations)
+			err := writeSARIF(outPath, testCase.toolName, testCase.violations)
 			require.NoError(t, err)
 
 			data, err := os.ReadFile(outPath)
@@ -117,7 +125,7 @@ func TestWriteSARIFResultStructure(t *testing.T) {
 	}
 
 	outPath := filepath.Join(t.TempDir(), "result.sarif")
-	err := archtest.WriteSARIF(outPath, "archtest", []archtest.Violation{violation})
+	err := writeSARIF(outPath, "archtest", []archtest.Violation{violation})
 	require.NoError(t, err)
 
 	data, err := os.ReadFile(outPath)
@@ -148,8 +156,8 @@ func TestWriteSARIFFingerprintIsDeterministic(t *testing.T) {
 	path1 := filepath.Join(t.TempDir(), "first.sarif")
 	path2 := filepath.Join(t.TempDir(), "second.sarif")
 
-	require.NoError(t, archtest.WriteSARIF(path1, "archtest", []archtest.Violation{violation}))
-	require.NoError(t, archtest.WriteSARIF(path2, "archtest", []archtest.Violation{violation}))
+	require.NoError(t, writeSARIF(path1, "archtest", []archtest.Violation{violation}))
+	require.NoError(t, writeSARIF(path2, "archtest", []archtest.Violation{violation}))
 
 	data1, err := os.ReadFile(path1)
 	require.NoError(t, err)
@@ -184,7 +192,7 @@ func TestWriteSARIFFingerprintDiffersForDifferentViolations(t *testing.T) {
 	}
 
 	outPath := filepath.Join(t.TempDir(), "diff.sarif")
-	require.NoError(t, archtest.WriteSARIF(outPath, "archtest", []archtest.Violation{firstViolation, secondViolation}))
+	require.NoError(t, writeSARIF(outPath, "archtest", []archtest.Violation{firstViolation, secondViolation}))
 
 	data, err := os.ReadFile(outPath)
 	require.NoError(t, err)
@@ -196,7 +204,7 @@ func TestWriteSARIFFingerprintDiffersForDifferentViolations(t *testing.T) {
 }
 
 func TestWriteSARIF_MkdirAllError(t *testing.T) {
-	err := archtest.WriteSARIF("/dev/null/impossible/output.sarif", "archtest", nil)
+	err := writeSARIF("/dev/null/impossible/output.sarif", "archtest", nil)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create output directory")
@@ -209,7 +217,7 @@ func TestWriteSARIF_WriteFileError(t *testing.T) {
 	require.NoError(t, os.Chmod(outDir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(outDir, 0o755) })
 
-	err := archtest.WriteSARIF(filepath.Join(outDir, "result.sarif"), "archtest", nil)
+	err := writeSARIF(filepath.Join(outDir, "result.sarif"), "archtest", nil)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write SARIF")
