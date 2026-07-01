@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+exports_files(["catalog.yaml"])
+
+go_test(
+    name = "lint_test",
+    srcs = ["catalog_test.go"],
+    data = [
+        "catalog.yaml",
+        "//lint/aspects:defs.bzl",
+    ],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)
