@@ -39,19 +39,43 @@ use_repo(npm, "gavel_eslint")
 # Linter tool binaries the aspects depend on. Owned here (not by consumers) so
 # the aspect labels (@golangci_lint, @pmd, …) resolve within this module.
 golangci_lint_binary = use_repo_rule("//lint/lang/go/golangci_lint:repositories.bzl", "golangci_lint_binary")
-golangci_lint_binary(name = "golangci_lint", version = "2.11.4")
+
+golangci_lint_binary(
+    name = "golangci_lint",
+    version = "2.11.4",
+)
 
 pmd_binary = use_repo_rule("//lint/lang/java/pmd:repositories.bzl", "pmd_binary")
-pmd_binary(name = "pmd", version = "7.24.0")
+
+pmd_binary(
+    name = "pmd",
+    version = "7.24.0",
+)
 
 spotbugs_binary = use_repo_rule("//lint/lang/java/spotbugs:repositories.bzl", "spotbugs_binary")
-spotbugs_binary(name = "spotbugs", version = "4.9.8")
+
+spotbugs_binary(
+    name = "spotbugs",
+    version = "4.9.8",
+)
 
 error_prone_binary = use_repo_rule("//lint/lang/java/error_prone:repositories.bzl", "error_prone_binary")
-error_prone_binary(name = "error_prone", version = "2.49.0")
+
+error_prone_binary(
+    name = "error_prone",
+    version = "2.49.0",
+)
 
 ruff_binary = use_repo_rule("//lint/lang/python/ruff:repositories.bzl", "ruff_binary")
-ruff_binary(name = "ruff", version = "0.15.12")
+
+ruff_binary(
+    name = "ruff",
+    version = "0.15.12",
+)
 
 bandit_binary = use_repo_rule("//lint/lang/python/bandit:repositories.bzl", "bandit_binary")
-bandit_binary(name = "bandit", version = "1.9.4")
+
+bandit_binary(
+    name = "bandit",
+    version = "1.9.4",
+)

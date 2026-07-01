@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,19 +19,26 @@ jobs:
           key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel.lock', '.bazelversion') }}
           restore-keys: bazel-${{ runner.os }}-
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - name: Install Bazelisk
         run: |
           sudo curl -fsSL -o /usr/local/bin/bazel \
             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
           sudo chmod +x /usr/local/bin/bazel
 
-      - name: Build & test
-        run: bazel test //...
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
 
-      - name: Coverage
-        run: bazel coverage //... --combined_report=lcov || true
+      - name: Quality gates
+        run: bash .github/ci/check.sh
 
       - name: Upload coverage to Codecov
+        if: always()
         uses: codecov/codecov-action@v4
         with:
           files: bazel-out/_coverage/_coverage_report.dat
