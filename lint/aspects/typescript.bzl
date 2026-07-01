@@ -118,8 +118,6 @@ def _typescript_archtest_aspect_impl(target, ctx):
         ] + [src.path for src in srcs],
         mnemonic = "GavelTypeScriptArchTest",
         progress_message = "Checking TypeScript architecture for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
     )
 
     return [_submission_output_groups(output, transitive)]

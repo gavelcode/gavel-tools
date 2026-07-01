@@ -194,8 +194,6 @@ def _go_archtest_aspect_impl(target, ctx):
         ] + [src.path for src in srcs],
         mnemonic = "GavelGoArchTest",
         progress_message = "Checking Go architecture for %s" % ctx.label,
-        execution_requirements = {"no-sandbox": "1"},
-        use_default_shell_env = True,
     )
 
     return [_submission_output_groups(output, transitive)]
