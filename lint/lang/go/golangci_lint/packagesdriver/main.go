@@ -142,19 +142,22 @@ func run(manifestPath, stdlibDir, execRoot string, patterns []string) (*driverRe
 	}, nil
 }
 
-// assignStdlibExports gives each standard-library package the compiled archive
-// rules_go emits (stdlibDir/<PkgPath>.a) as its ExportFile. rules_go's stdlib
-// pkg.json leaves ExportFile empty, so without this golangci-lint must type-check
-// the whole stdlib from source; worse, loading any dependency from its own export
-// data fails ("no export data for <stdlib pkg>") because the stdlib archives it
-// references are not wired in. Packages that already carry export data, lack an
-// on-disk archive, or are not standard are left untouched.
+// assignStdlibExports points each standard-library package at the compiled
+// archive rules_go emits (stdlibDir/<PkgPath>.a) as its ExportFile. Without an
+// explicit export, golangci-lint fails to load export data for anything that
+// imports the stdlib ("no export data for <stdlib pkg>"). rules_go leaves the
+// field empty by default; under export_stdlib it fills it with a gocache path,
+// but that compiler-cache object is not the archive gcexportdata expects, so a
+// package like internal/byteorder (reached via syscall) still fails to load.
+// The .a is the reliable export data, so it is preferred over whatever the
+// pkg.json carried. Non-standard packages, and stdlib packages with no archive
+// on disk, are left untouched.
 func assignStdlibExports(packages []*FlatPackage, stdlibDir string) {
 	if stdlibDir == "" {
 		return
 	}
 	for _, flatPackage := range packages {
-		if !flatPackage.Standard || flatPackage.ExportFile != "" {
+		if !flatPackage.Standard {
 			continue
 		}
 		archive := filepath.Join(stdlibDir, filepath.FromSlash(flatPackage.PkgPath)+archiveSuffix)

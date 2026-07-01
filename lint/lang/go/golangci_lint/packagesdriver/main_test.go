@@ -214,27 +214,32 @@ func TestRun_MissingManifestEnv(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestAssignStdlibExports_FillsStandardPackagesFromCompiledArchives(t *testing.T) {
+func TestAssignStdlibExports_PrefersCompiledArchiveOverExistingExport(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "math.a"), []byte("x"), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "net"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "net", "http.a"), []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cmp.a"), []byte("x"), 0o644))
 
 	packages := []*FlatPackage{
 		{ID: "m", PkgPath: "math", Standard: true},
 		{ID: "h", PkgPath: "net/http", Standard: true},
-		{ID: "keep", PkgPath: "embed", Standard: true, ExportFile: "/already/set.a"},
+		{ID: "c", PkgPath: "cmp", Standard: true, ExportFile: "/gocache/ab/abc-d"},
+		{ID: "noarchive", PkgPath: "embed", Standard: true, ExportFile: "/gocache/xy/xyz-d"},
 		{ID: "absent", PkgPath: "syscall", Standard: true},
-		{ID: "app", PkgPath: "example.com/app", Standard: false},
+		{ID: "app", PkgPath: "example.com/app", Standard: false, ExportFile: "/x.a"},
 	}
 
 	assignStdlibExports(packages, dir)
 
 	assert.Equal(t, filepath.Join(dir, "math.a"), packages[0].ExportFile)
 	assert.Equal(t, filepath.Join(dir, "net", "http.a"), packages[1].ExportFile)
-	assert.Equal(t, "/already/set.a", packages[2].ExportFile, "existing export data is not overwritten")
-	assert.Empty(t, packages[3].ExportFile, "no archive on disk leaves the package untouched")
-	assert.Empty(t, packages[4].ExportFile, "non-standard packages are never touched")
+	assert.Equal(t, filepath.Join(dir, "cmp.a"), packages[2].ExportFile,
+		"the compiled .a replaces the unreliable gocache export path")
+	assert.Equal(t, "/gocache/xy/xyz-d", packages[3].ExportFile,
+		"a stdlib package with no archive on disk keeps its existing export")
+	assert.Empty(t, packages[4].ExportFile, "no archive and no prior export stays empty")
+	assert.Equal(t, "/x.a", packages[5].ExportFile, "non-standard packages are never touched")
 }
 
 func TestAssignStdlibExports_EmptyDirIsNoOp(t *testing.T) {
