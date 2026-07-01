@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged module
+        uses: actions/checkout@v4
+
+      - name: Derive version and archive integrity
+        id: meta
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "tag ${GITHUB_REF_NAME} is not a vX.Y.Z release tag; refusing to publish"
+            exit 1
+          fi
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          # GitHub's tag tarball is byte-stable; retry for the brief window
+          # between the tag push and the archive becoming downloadable.
+          sha="$(curl -fsSL --retry 8 --retry-delay 5 --retry-all-errors "$url" \
+            | openssl dgst -sha256 -binary | openssl base64 -A)"
+          {
+            echo "version=${version}"
+            echo "url=${url}"
+            echo "integrity=sha256-${sha}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Check out the registry
+        uses: actions/checkout@v4
+        with:
+          repository: gavelcode/registry
+          token: ${{ secrets.REGISTRY_TOKEN }}
+          path: registry
+
+      - name: Add the module version to the registry
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          URL: ${{ steps.meta.outputs.url }}
+          INTEGRITY: ${{ steps.meta.outputs.integrity }}
+        run: |
+          module_dir="registry/modules/gavel_tools/${VERSION}"
+          mkdir -p "${module_dir}"
+          cp MODULE.bazel "${module_dir}/MODULE.bazel"
+          jq -n --arg url "$URL" --arg integrity "$INTEGRITY" \
+            --arg strip "gavel-tools-${VERSION}" \
+            '{url: $url, integrity: $integrity, strip_prefix: $strip}' \
+            >"${module_dir}/source.json"
+          metadata="registry/modules/gavel_tools/metadata.json"
+          jq --arg v "$VERSION" '.versions = (.versions + [$v] | unique)' \
+            "${metadata}" >"${metadata}.tmp"
+          mv "${metadata}.tmp" "${metadata}"
+
+      - name: Commit and push to the registry
+        working-directory: registry
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "gavel_tools ${VERSION} is already in the registry; nothing to publish"
+            exit 0
+          fi
+          git config user.name "gavel-release[bot]"
+          git config user.email "release@gavelcode.dev"
+          git add modules/gavel_tools
+          git commit -m "gavel_tools ${VERSION}"
+          git push
