@@ -1,28 +1,23 @@
 ---
-title: The sandbox axis
+title: The hermetic analyzer driver
 type: explanation
-description: One question decides how each analyzer runs — does it need the real build environment?
+description: Why every analyzer runs sandboxed, and the maintenance contract for golangci-lint — the one that took custom code to get there.
 ---
 
-# The sandbox axis
+# The hermetic analyzer driver
 
-The organizing question for every analyzer is **not** "is it ours or rules_lint's".
-It is:
+Every analyzer in gavel-tools runs **sandboxed** — hermetic, cacheable, offline,
+no host access. The principle that got them all there:
 
-> **Does the analyzer need the real build environment?**
+> Before reaching for `no-sandbox`, ask whether the environment the tool needs is
+> already a Bazel artifact you can declare as an input.
 
-- **No** — it reads source files in isolation (ruff, eslint without types, pmd,
-  bandit, cpd). It runs fine **sandboxed**: hermetic, cacheable, reproducible.
-- **Yes** — it needs the compiler, the module graph, type information, the
-  classpath, or the whole package (golangci-lint, Error Prone, type-aware
-  analysis, architecture rules). The naive answer is to run it **outside the
-  sandbox** (`no-sandbox`); rules_lint dropped golangci-lint for exactly this
-  ("fatal bug"). But "needs the build environment" does not mean "needs the
-  host": if that environment can be **materialized as declared Bazel inputs**,
-  the tool runs sandboxed after all. golangci-lint now does — see below.
-
-`no-sandbox` is a tool, used **only where the analysis genuinely cannot be fed
-its environment as inputs** — not a default.
+Most analyzers read source in isolation and were sandboxed from the start. The
+two that looked like they *forced* `no-sandbox` did not, once their environment
+was materialized as declared inputs: golangci-lint needs the whole package graph
+(rules_go's `go_pkg_info_aspect` emits it), and ESLint needs the consumer's
+flat-config plugin closure (rules_js's `JsInfo.npm_sources` carries it). There is
+no `no-sandbox` left anywhere in `lint/aspects/`.
 
 ## Materializing the build environment (the hermetic golangci-lint)
 
@@ -70,53 +65,3 @@ cannot load export data for anything that imports the stdlib.
 > (lose hermeticity) — were judged worse. Contrast Rust, which pays ~40 lines of
 > SARIF conversion because `rules_rust` ships a hermetic Clippy aspect; nobody
 > ships one for golangci-lint, so gavel owns the adapter.
-
-## The no-sandbox tax (paid consciously)
-
-`no-sandbox` is not free. Because the tool reads files Bazel did not declare as
-inputs, the action cache can go stale and builds couple to the host environment.
-We have paid this twice: the `go_test` golangci aspect served stale SARIF on
-body-local edits (fixed with sibling-source tracking), and Bandit picked up a
-system Python 3.9 off `PATH` (fixed by resolving the hermetic interpreter). So a
-source-only tool that uses `no-sandbox` only out of habit should be **sandboxed**
-to shed the tax.
-
-golangci-lint used to pay this tax twice over — it took the host `go` off `PATH`
-and could reach the network for modules. Both are now gone: it runs sandboxed
-under the pinned SDK against a pre-built package graph (see "Materializing the
-build environment" above). The lesson generalizes: before reaching for
-`no-sandbox`, ask whether the environment the tool needs is already a Bazel
-artifact you can declare.
-
-ESLint proved the same point in the JS ecosystem. It looked source-only, but its
-flat config `import`s the consumer's plugins (`react-hooks`, `typescript-eslint`,
-…) — a per-project graph, not a fixed set gavel can bundle. The aspect runs on
-the consumer's `js_library`/`ts_project` and harvests those plugins from
-**`JsInfo.npm_sources`** — the rules_js twin of Go's `GoPkgInfo` — declaring them
-as sandboxed inputs so gavel's pinned ESLint resolves them with no host access.
-ESLint's npm SARIF formatter does not resolve inside the sandbox, so the wrapper
-runs the built-in `json` formatter and converts to SARIF in Go (as Clippy does).
-
-## Tier assignment (audited from the aspect implementations)
-
-All of these are **native** wrappers (they emit each tool's native SARIF — see
-[rules-lint](rules-lint.md) for why that matters). The column that matters is
-whether `no-sandbox` is load-bearing.
-
-| Tool | Consumes | `no-sandbox` |
-|------|----------|--------------|
-| **golangci-lint** (go) | whole package graph, via pre-built `pkg.json` + export data | **none** → sandboxed (static driver) |
-| **Error Prone** (java) | `transitive_compile_time_jars` + `--classpath` | **load-bearing** (type-aware) |
-| **archtest** (all langs) | imports/source for layer rules | **load-bearing** (semantic) |
-| **pycompile** (python) | python compile | **load-bearing** (env) |
-| SpotBugs (java) | `runtime_output_jars` (bytecode) | semantic-ish (jars are Bazel inputs) |
-| Ruff (python) | standalone binary, source AST | **incidental** → should be sandboxed |
-| PMD (java) | `srcs + config` only | **incidental** → should be sandboxed |
-| **ESLint** (ts) | flat config + the consumer's plugins, via `JsInfo.npm_sources` | **none** → sandboxed (JsInfo harvest) |
-| Bandit (python) | source AST + python | **incidental** → should be sandboxed |
-| CPD (java) | source (copy-paste) | **incidental** → should be sandboxed |
-| Clippy (rust) | wraps `rust_clippy_aspect` (already sandboxed) | n/a |
-
-The source-only wrappers keep native-SARIF fidelity **and** can be sandboxed —
-best of both. rules_lint is not in this table; it is a separate, breadth-only
-add-on (see [rules-lint](rules-lint.md)).
