@@ -24,16 +24,19 @@ consumer can read the results.
 
 ## Usage
 
-Add the module (bzlmod):
+gavel-tools is published to the [gavel registry](https://gavelcode.github.io/registry).
+Point Bazel at it (alongside the Bazel Central Registry) and depend on it by
+version:
+
+```bash
+# .bazelrc
+common --registry=https://bcr.bazel.build
+common --registry=https://gavelcode.github.io/registry
+```
 
 ```python
-# MODULE.bazel
-bazel_dep(name = "gavel_tools", version = "0.1.0")
-git_override(
-    module_name = "gavel_tools",
-    remote = "https://github.com/gavelcode/gavel-tools.git",
-    commit = "…",  # pin a commit
-)
+# MODULE.bazel — pick the latest version from the registry
+bazel_dep(name = "gavel_tools", version = "0.2.0")
 ```
 
 Run a lint aspect over your targets — findings land as `*.sarif` under

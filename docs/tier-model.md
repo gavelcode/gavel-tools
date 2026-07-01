@@ -40,7 +40,10 @@ module fetches, every input declared, cache-correct.
 The driver mirrors rules_go's own (build-tag filtering, stdlib import linking,
 test-file splitting) but adds what a sandboxed run needs: it collapses the three
 Bazel path placeholders to the exec root, merges the two same-ID `pkg.json` a
-`go_test` emits, and drops the generated `testmain.go` so it is never linted.
+`go_test` emits, drops the generated `testmain.go` so it is never linted, and
+gives each stdlib package the compiled archive from `go_sdk.libs` (`<pkg>.a`) as
+its export data — rules_go leaves that field empty, and without it golangci-lint
+cannot load export data for anything that imports the stdlib.
 
 > ⚠️ **Maintenance contract — read before bumping `rules_go` or `golangci-lint`.**
 > The Go path is the only analyzer where gavel carries code that shadows an

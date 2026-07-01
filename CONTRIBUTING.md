@@ -27,7 +27,7 @@ bazel run //:gazelle
 
 ```
 lint/
-├── aspects/defs.bzl   # the Starlark aspects (one per language×tool)
+├── aspects/           # lint aspects: one <lang>.bzl each; defs.bzl re-exports them
 ├── archtest/          # shared architecture-test library
 └── lang/<lang>/<tool>/ # per-tool Go wrapper that invokes the tool → SARIF
 macros/                # build macros (e.g. web_project)
@@ -39,7 +39,8 @@ See [`docs/repository-layout.md`](docs/repository-layout.md) for the full map an
 
 ## Adding a linter or language
 
-1. Add the aspect in `lint/aspects/defs.bzl`.
+1. Add the aspect in `lint/aspects/<language>.bzl` and re-export it from
+   `lint/aspects/defs.bzl` (the stable public entry point).
 2. Add the per-tool wrapper under `lint/lang/<language>/<tool>/` (Go binary that
    runs the tool and emits its **native** SARIF).
 3. Declare the tool's binary repository in `MODULE.bazel`.
@@ -51,7 +52,10 @@ The organizing principle is the **sandbox axis** — read
 
 ## Pull requests
 
-- Keep each PR to one logical change. `bazel test //...` must be green.
+- Keep each PR to one logical change, and run the full gate before pushing:
+  `bash .github/ci/check.sh` (tests, coverage, formatting, lint, architecture,
+  vulnerabilities, …) must pass — it is exactly what CI runs.
+  `bash .github/ci/fmt.sh` applies the auto-fixes.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat`, `fix`, `docs`, `refactor`, …) with an imperative subject. Explain the
   *why* in the body, not the diff.

@@ -6,4 +6,5 @@
 * [rules_lint — breadth add-on, not a substitute](rules-lint.md) - Measured — rules_lint's reviewdog SARIF drops ruleId, so it is only for tools we don't wrap.
 * [The catalog — two-layer config](catalog.md) - catalog.yaml is the default menu of language→tools; gavel.yaml selects per project.
 * [web_project macro](web-project.md) - One macro that generates a frontend app's whole Bazel build graph.
-* [Status & next steps](status.md) - What is done in gavel-tools, and what remains.
+* [Releasing](releasing.md) - One command tags a version and publishes it to the gavel registry.
+* [Roadmap](roadmap.md) - What is not yet built; shipped state lives in the code and the published versions.

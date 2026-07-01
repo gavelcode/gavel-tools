@@ -16,8 +16,8 @@ gavel-tools/
 ├── docs/                              # this doc bundle
 │
 ├── lint/                             # LINTERS → consumed via --aspects
-│   ├── catalog.yaml                  #   language→tools menu (default catalog)
-│   ├── aspects/defs.bzl              #   the Starlark lint engine
+│   ├── catalog.yaml                  #   language→tools menu (planned — see catalog.md)
+│   ├── aspects/                      #   lint aspects: one <lang>.bzl each; defs.bzl re-exports them
 │   ├── archtest/                     #   shared Go arch-rules library
 │   └── lang/                         #   per-language wrappers + tool repos
 │       ├── go/golangci_lint/
@@ -34,7 +34,7 @@ gavel-tools/
 
 - `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect`
 - `@gavel_tools//lint/lang/go/golangci_lint:repositories.bzl`
-- `@gavel_tools//lint:catalog.yaml`
+- `@gavel_tools//lint:catalog.yaml` (planned)
 - `@gavel_tools//macros:web.bzl%web_project`
 
 The root holds only `lint/`, `macros/`, `docs/` and the module files — separated

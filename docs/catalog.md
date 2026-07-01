@@ -6,6 +6,10 @@ description: catalog.yaml is the default menu of language→tools; gavel.yaml se
 
 # The catalog — two-layer config
 
+> **Status: designed, not yet built.** This is the plan for `lint/catalog.yaml`
+> and the core loader (see the [roadmap](roadmap.md)); the core still uses
+> hardcoded maps today.
+
 ## Layer 1 — `lint/catalog.yaml` (the menu)
 
 Source of truth for *what exists* per language, *how to invoke it*, and *what is

@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-gavel-tools is **alpha**. Security fixes land on `main`; there are no
-maintained release branches yet. Pin a commit via `git_override` and update to
-pick up fixes.
+gavel-tools is **alpha**. Security fixes land on `main` and ship in the next
+version published to the [gavel registry](https://gavelcode.github.io/registry);
+depend on a version and update to pick up fixes.
 
 ## Reporting a vulnerability
 
