@@ -40,6 +40,8 @@ const (
 	workspacePlaceholder  = "__BAZEL_WORKSPACE__"
 	outputBasePlaceholder = "__BAZEL_OUTPUT_BASE__"
 	manifestEnv           = "GAVEL_PKG_JSON_MANIFEST"
+	stdlibDirEnv          = "GAVEL_STDLIB_PKG_DIR"
+	archiveSuffix         = ".a"
 	filePrefix            = "file="
 	patternPrefix         = "pattern="
 	recursiveSuffix       = "/..."
@@ -81,7 +83,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	resp, err := run(os.Getenv(manifestEnv), execRoot, os.Args[1:])
+	resp, err := run(os.Getenv(manifestEnv), os.Getenv(stdlibDirEnv), execRoot, os.Args[1:])
 	if err != nil {
 		fail(err)
 	}
@@ -99,7 +101,7 @@ func fail(err error) {
 	os.Exit(0)
 }
 
-func run(manifestPath, execRoot string, patterns []string) (*driverResponse, error) {
+func run(manifestPath, stdlibDir, execRoot string, patterns []string) (*driverResponse, error) {
 	if manifestPath == "" {
 		return nil, fmt.Errorf("missing %s", manifestEnv)
 	}
@@ -112,6 +114,8 @@ func run(manifestPath, execRoot string, patterns []string) (*driverResponse, err
 	if err != nil {
 		return nil, err
 	}
+
+	assignStdlibExports(packages, absoluteStdlibDir(stdlibDir, execRoot))
 
 	stdlibByPath := map[string]string{}
 	for _, flatPackage := range packages {
@@ -136,6 +140,35 @@ func run(manifestPath, execRoot string, patterns []string) (*driverResponse, err
 		Roots:    matchRoots(patterns, packages, execRoot),
 		Packages: packages,
 	}, nil
+}
+
+// assignStdlibExports gives each standard-library package the compiled archive
+// rules_go emits (stdlibDir/<PkgPath>.a) as its ExportFile. rules_go's stdlib
+// pkg.json leaves ExportFile empty, so without this golangci-lint must type-check
+// the whole stdlib from source; worse, loading any dependency from its own export
+// data fails ("no export data for <stdlib pkg>") because the stdlib archives it
+// references are not wired in. Packages that already carry export data, lack an
+// on-disk archive, or are not standard are left untouched.
+func assignStdlibExports(packages []*FlatPackage, stdlibDir string) {
+	if stdlibDir == "" {
+		return
+	}
+	for _, flatPackage := range packages {
+		if !flatPackage.Standard || flatPackage.ExportFile != "" {
+			continue
+		}
+		archive := filepath.Join(stdlibDir, filepath.FromSlash(flatPackage.PkgPath)+archiveSuffix)
+		if _, err := os.Stat(archive); err == nil {
+			flatPackage.ExportFile = archive
+		}
+	}
+}
+
+func absoluteStdlibDir(stdlibDir, execRoot string) string {
+	if stdlibDir == "" || filepath.IsAbs(stdlibDir) {
+		return stdlibDir
+	}
+	return filepath.Join(execRoot, stdlibDir)
 }
 
 func readManifest(path string) ([]string, error) {

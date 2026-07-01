@@ -23,6 +23,7 @@ func execute() int {
 	driver := flag.String("driver", "", "Path to the static gopackagesdriver binary")
 	manifest := flag.String("manifest", "", "Path to the pkg.json manifest the driver reads")
 	goBinary := flag.String("go", "", "Path to the Go SDK binary, used to derive GOROOT")
+	stdlibDir := flag.String("stdlib-pkg-dir", "", "Directory of compiled stdlib .a archives, used as export data")
 	packageFlag := flag.String("package", "", "Go package directory to lint")
 	outputFlag := flag.String("out", "", "SARIF output path")
 	skipTests := flag.Bool("skip-tests", false, "Exclude test files from analysis")
@@ -37,14 +38,14 @@ func execute() int {
 		return exitUsageError
 	}
 
-	if err := run(*binary, *driver, *manifest, *goBinary, *packageFlag, *outputFlag, *skipTests); err != nil {
+	if err := run(*binary, *driver, *manifest, *goBinary, *stdlibDir, *packageFlag, *outputFlag, *skipTests); err != nil {
 		fmt.Fprintf(os.Stderr, "run golangci-lint: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(binary, driver, manifest, goBinary, packageDir, outputPath string, skipTests bool) (err error) {
+func run(binary, driver, manifest, goBinary, stdlibDir, packageDir, outputPath string, skipTests bool) (err error) {
 	if absOut, absErr := filepath.Abs(outputPath); absErr == nil {
 		outputPath = absOut
 	}
@@ -78,7 +79,7 @@ func run(binary, driver, manifest, goBinary, packageDir, outputPath string, skip
 	cmd := exec.Command(binary, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = driverEnv(cacheDir, driver, manifest, goBinary)
+	cmd.Env = driverEnv(cacheDir, driver, manifest, goBinary, stdlibDir)
 	if runErr := cmd.Run(); runErr != nil {
 		return sarif.WriteFailed(outputPath, "golangci-lint", fmt.Sprintf("golangci-lint failed to run: %v", runErr))
 	}
@@ -107,7 +108,7 @@ func buildLintArgs(packageDir, outputPath string, skipTests bool, configFile str
 // manifest, so the network is off and the only Go toolchain is the pinned SDK
 // behind GOROOT. golangci-lint inherits these and forwards them to the driver
 // subprocess it spawns.
-func driverEnv(cacheDir, driver, manifest, goBinary string) []string {
+func driverEnv(cacheDir, driver, manifest, goBinary, stdlibDir string) []string {
 	environment := []string{
 		"PATH=" + binPath(goBinary),
 		"HOME=" + cacheDir,
@@ -126,6 +127,9 @@ func driverEnv(cacheDir, driver, manifest, goBinary string) []string {
 	}
 	if goBinary != "" {
 		environment = append(environment, "GOROOT="+goRoot(goBinary))
+	}
+	if stdlibDir != "" {
+		environment = append(environment, "GAVEL_STDLIB_PKG_DIR="+absOrSelf(stdlibDir))
 	}
 	return environment
 }

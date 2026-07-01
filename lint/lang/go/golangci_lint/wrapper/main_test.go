@@ -75,7 +75,7 @@ func TestExecute_Success(t *testing.T) {
 func TestRun_MkdirAllError(t *testing.T) {
 	lint := writeFakeScript(t, "golangci-lint", 0)
 
-	err := run(lint, "", "", "", "./pkg", "/dev/null/impossible/out.sarif", false)
+	err := run(lint, "", "", "", "", "./pkg", "/dev/null/impossible/out.sarif", false)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create output dir")
@@ -85,7 +85,7 @@ func TestRun_LintNotFound(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
 
-	err := run("", "", "", "", "./pkg", filepath.Join(dir, "out.sarif"), false)
+	err := run("", "", "", "", "", "./pkg", filepath.Join(dir, "out.sarif"), false)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -98,7 +98,7 @@ func TestRun_LintFoundInPath(t *testing.T) {
 	t.Setenv("PATH", tmp)
 	dir := t.TempDir()
 
-	err := run("", "", "", "", "./pkg", filepath.Join(dir, "out.sarif"), false)
+	err := run("", "", "", "", "", "./pkg", filepath.Join(dir, "out.sarif"), false)
 
 	require.NoError(t, err)
 }
@@ -108,7 +108,7 @@ func TestRun_CommandErrorWritesFailedSarif(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out.sarif")
 
-	err := run(lint, "", "", "", "./pkg", out, false)
+	err := run(lint, "", "", "", "", "./pkg", out, false)
 
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(out)
@@ -125,7 +125,7 @@ func TestRun_WithConfigFile(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".golangci.yml"), []byte("linters:\n"), 0o644))
 
-	err = run(lint, "", "", "", "./pkg", filepath.Join(dir, "out", "result.sarif"), false)
+	err = run(lint, "", "", "", "", "./pkg", filepath.Join(dir, "out", "result.sarif"), false)
 
 	require.NoError(t, err)
 }
@@ -171,14 +171,27 @@ func TestBuildArgs_SARIFOutput(t *testing.T) {
 }
 
 func TestDriverEnv_PointsGolangciAtStaticDriver(t *testing.T) {
-	env := envToMap(driverEnv(t.TempDir(), "/exec/driver", "/exec/manifest", ""))
+	env := envToMap(driverEnv(t.TempDir(), "/exec/driver", "/exec/manifest", "", ""))
 
 	assert.Equal(t, "/exec/driver", env["GOPACKAGESDRIVER"])
 	assert.Equal(t, "/exec/manifest", env["GAVEL_PKG_JSON_MANIFEST"])
 }
 
+func TestDriverEnv_SetsStdlibPkgDir(t *testing.T) {
+	env := envToMap(driverEnv(t.TempDir(), "", "", "", "/exec/stdlibpkg"))
+
+	assert.Equal(t, "/exec/stdlibpkg", env["GAVEL_STDLIB_PKG_DIR"])
+}
+
+func TestDriverEnv_OmitsStdlibPkgDirWhenEmpty(t *testing.T) {
+	env := envToMap(driverEnv(t.TempDir(), "", "", "", ""))
+
+	_, ok := env["GAVEL_STDLIB_PKG_DIR"]
+	assert.False(t, ok, "GAVEL_STDLIB_PKG_DIR must be absent when no --stdlib-pkg-dir is provided")
+}
+
 func TestDriverEnv_CutsNetwork(t *testing.T) {
-	env := envToMap(driverEnv(t.TempDir(), "", "", ""))
+	env := envToMap(driverEnv(t.TempDir(), "", "", "", ""))
 
 	assert.Equal(t, "off", env["GOPROXY"])
 	assert.Equal(t, "off", env["GOSUMDB"])
@@ -186,13 +199,13 @@ func TestDriverEnv_CutsNetwork(t *testing.T) {
 }
 
 func TestDriverEnv_DerivesGOROOTFromSDK(t *testing.T) {
-	env := envToMap(driverEnv(t.TempDir(), "", "", "/sdk/go/bin/go"))
+	env := envToMap(driverEnv(t.TempDir(), "", "", "/sdk/go/bin/go", ""))
 
 	assert.Equal(t, "/sdk/go", env["GOROOT"])
 }
 
 func TestDriverEnv_OmitsGOROOTWhenNoGoBinary(t *testing.T) {
-	env := envToMap(driverEnv(t.TempDir(), "", "", ""))
+	env := envToMap(driverEnv(t.TempDir(), "", "", "", ""))
 
 	_, ok := env["GOROOT"]
 	assert.False(t, ok, "GOROOT must be absent when no --go is provided")
@@ -200,7 +213,7 @@ func TestDriverEnv_OmitsGOROOTWhenNoGoBinary(t *testing.T) {
 
 func TestDriverEnv_IsolatedCaches(t *testing.T) {
 	cache := t.TempDir()
-	env := envToMap(driverEnv(cache, "", "", ""))
+	env := envToMap(driverEnv(cache, "", "", "", ""))
 
 	assert.Equal(t, filepath.Join(cache, "build"), env["GOCACHE"])
 	assert.Equal(t, filepath.Join(cache, "lint"), env["GOLANGCI_LINT_CACHE"])

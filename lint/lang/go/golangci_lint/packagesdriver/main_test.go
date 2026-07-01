@@ -179,30 +179,70 @@ func TestRun_EndToEnd(t *testing.T) {
 		`{"ID":"//v:v","Name":"verdict","PkgPath":"v","GoFiles":["`+src+`"],"CompiledGoFiles":["`+src+`"]}`), 0o644))
 	stdlibJSON := filepath.Join(dir, "stdlib.json")
 	require.NoError(t, os.WriteFile(stdlibJSON, []byte(
-		`{"ID":"@stdlib//:fmt","Name":"fmt","PkgPath":"fmt","Standard":true,"ExportFile":"/sdk/fmt.x"}`), 0o644))
+		`{"ID":"@stdlib//:fmt","Name":"fmt","PkgPath":"fmt","Standard":true}`), 0o644))
+	stdlibDir := filepath.Join(dir, "stdlibpkg")
+	require.NoError(t, os.MkdirAll(stdlibDir, 0o755))
+	fmtExport := filepath.Join(stdlibDir, "fmt.a")
+	require.NoError(t, os.WriteFile(fmtExport, []byte("x"), 0o644))
 	manifest := filepath.Join(dir, "manifest")
 	require.NoError(t, os.WriteFile(manifest, []byte(pkgJSON+"\n"+stdlibJSON+"\n"), 0o644))
 
-	resp, err := run(manifest, dir, []string{"file=" + src})
+	resp, err := run(manifest, stdlibDir, dir, []string{"file=" + src})
 
 	require.NoError(t, err)
 	assert.False(t, resp.NotHandled)
 	assert.Equal(t, []string{"//v:v"}, resp.Roots)
 	require.Len(t, resp.Packages, 2)
-	var verdict *FlatPackage
+	var verdict, fmtPkg *FlatPackage
 	for _, p := range resp.Packages {
-		if p.ID == "//v:v" {
+		switch p.ID {
+		case "//v:v":
 			verdict = p
+		case "@stdlib//:fmt":
+			fmtPkg = p
 		}
 	}
 	require.NotNil(t, verdict)
 	assert.Equal(t, "@stdlib//:fmt", verdict.Imports["fmt"], "stdlib import resolved into the graph")
+	require.NotNil(t, fmtPkg)
+	assert.Equal(t, fmtExport, fmtPkg.ExportFile, "stdlib package given its compiled .a as export data")
 }
 
 func TestRun_MissingManifestEnv(t *testing.T) {
-	_, err := run("", "/r", nil)
+	_, err := run("", "", "/r", nil)
 
 	require.Error(t, err)
+}
+
+func TestAssignStdlibExports_FillsStandardPackagesFromCompiledArchives(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "math.a"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "net"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "net", "http.a"), []byte("x"), 0o644))
+
+	packages := []*FlatPackage{
+		{ID: "m", PkgPath: "math", Standard: true},
+		{ID: "h", PkgPath: "net/http", Standard: true},
+		{ID: "keep", PkgPath: "embed", Standard: true, ExportFile: "/already/set.a"},
+		{ID: "absent", PkgPath: "syscall", Standard: true},
+		{ID: "app", PkgPath: "example.com/app", Standard: false},
+	}
+
+	assignStdlibExports(packages, dir)
+
+	assert.Equal(t, filepath.Join(dir, "math.a"), packages[0].ExportFile)
+	assert.Equal(t, filepath.Join(dir, "net", "http.a"), packages[1].ExportFile)
+	assert.Equal(t, "/already/set.a", packages[2].ExportFile, "existing export data is not overwritten")
+	assert.Empty(t, packages[3].ExportFile, "no archive on disk leaves the package untouched")
+	assert.Empty(t, packages[4].ExportFile, "non-standard packages are never touched")
+}
+
+func TestAssignStdlibExports_EmptyDirIsNoOp(t *testing.T) {
+	packages := []*FlatPackage{{ID: "m", PkgPath: "math", Standard: true}}
+
+	assignStdlibExports(packages, "")
+
+	assert.Empty(t, packages[0].ExportFile)
 }
 
 func TestFilterBuildTags_DropsForeignGOOS(t *testing.T) {

@@ -67,6 +67,19 @@ def _go_golangci_lint_aspect_impl(target, ctx):
     ctx.actions.write(manifest, "\n".join(manifest_paths) + "\n")
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".golangci.sarif")
+
+    # rules_go ships the compiled stdlib as pre-built .a archives but leaves their
+    # ExportFile empty in stdlib.pkg.json. The driver needs their directory to wire
+    # each stdlib package to its archive, or golangci-lint cannot load export data
+    # for any dependency that imports the stdlib. With export_stdlib the archives
+    # arrive in go_sdk.libs under pkg/<goos>_<goarch>; the shortest lib dirname is
+    # that root (nested packages like net/http.a sit beneath it).
+    stdlib_libs = go_sdk.libs.to_list()
+    stdlib_pkg_dir = ""
+    for stdlib_lib in stdlib_libs:
+        if not stdlib_pkg_dir or len(stdlib_lib.dirname) < len(stdlib_pkg_dir):
+            stdlib_pkg_dir = stdlib_lib.dirname
+
     args = [
         "--golangci-lint",
         ctx.file._golangci_lint.path,
@@ -76,6 +89,8 @@ def _go_golangci_lint_aspect_impl(target, ctx):
         manifest.path,
         "--go",
         go_sdk.go.path,
+        "--stdlib-pkg-dir",
+        stdlib_pkg_dir,
         "--package",
         ctx.label.package,
         "--out",
