@@ -9,21 +9,14 @@ description: How findings flow from aspects to the platform — SARIF files on d
 Every analyzer emits **SARIF on disk**; the platform ingests SARIF and is
 agnostic to which analyzer produced it.
 
-| Source | Aspect label | Output group | File |
-|--------|--------------|--------------|------|
-| native (gavel-tools) | `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect` | `gavel_submissions` | `*.sarif` |
-| rules_lint (breadth) | `@aspect_rules_lint//lint:<tool>.bzl%<tool>` | `rules_lint_machine` | `*.report` (SARIF) |
+| Aspect label | Output group | File |
+|--------------|--------------|------|
+| `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect` | `gavel_submissions` | `*.sarif` |
 
-Native aspects run the tool with its **native** SARIF emitter (e.g.
-`ruff --output-format=sarif`, `@microsoft/eslint-formatter-sarif`,
-`golangci-lint ... --out-format sarif`), so the SARIF carries a proper
-`ruleId`, severity and location.
-
-rules_lint (used only for tools we do not wrap) converts each tool's text output
-to SARIF via its `sarif_parser` toolchain (`reviewdog/errorformat`) into
-`rules_lint_machine`. That conversion is lossier — see [rules-lint](rules-lint.md).
-Run it with `--@aspect_rules_lint//lint:fail_on_violation` **off** so the build
-stays green and Gavel evaluates the gate itself.
+Each aspect runs the tool with its **native** SARIF emitter (e.g.
+`ruff --output-format=sarif`, `@microsoft/eslint-formatter-sarif`, and the
+golangci-lint SARIF output), so the SARIF carries a proper `ruleId`, severity
+and location.
 
 ## What the platform's parser needs
 
@@ -32,3 +25,9 @@ results without one), a **location** (`artifactLocation.uri` + `region.startLine
 a **message**, and a **level** (else defaults to warning). It computes its own
 stable fingerprint from `tool:ruleId:file:lineContent` — so it does not depend on
 the tool supplying fingerprints, but it **does** depend on `ruleId` being present.
+
+This is why gavel-tools wraps each linter natively rather than delegating to
+[aspect-build/rules_lint](https://github.com/aspect-build/rules_lint): its
+reviewdog-based SARIF leaves `ruleId` empty, which the parser rejects. For a
+tool gavel-tools does not wrap, rules_lint remains a valid breadth option to
+wire on the side.

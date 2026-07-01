@@ -30,14 +30,12 @@ languages:
       - { name: pmd,         tier: native,     aspect: java_pmd_submission_aspect,         output_group: gavel_submissions, default: true }
       - { name: spotbugs,    tier: native,     aspect: java_spotbugs_submission_aspect,    output_group: gavel_submissions, default: true }
       - { name: archtest,    tier: native,     aspect: java_archtest_submission_aspect,    output_group: gavel_submissions, default: true }
-      - { name: checkstyle,  tier: rules_lint, aspect: checkstyle,  output_group: rules_lint_machine, default: false }
   # python, rust, typescript …
 ```
 
-`tier: native` = a gavel-tools wrapper (native SARIF). `tier: rules_lint` = a
-breadth-only tool we do not wrap (see [rules-lint](rules-lint.md)), off by
-default. Each entry carries exactly what the core needs to generate the bazelrc
-and decide what to run: `tier`, `aspect`, `output_group`, `default`.
+Every entry is a gavel-tools native-SARIF wrapper (`tier: native`). Each carries
+exactly what the core needs to generate the bazelrc and decide what to run:
+`aspect`, `output_group`, `default`.
 
 ## Layer 2 — consumer `gavel.yaml` (the selection)
 
@@ -49,7 +47,7 @@ projects:
   - name: payment-service
     languages: [java]
     linters:
-      java: [error-prone, pmd, spotbugs, checkstyle]   # opt in to checkstyle
+      java: [error-prone, spotbugs]   # a subset of the java defaults
 ```
 
 ## Core impact

@@ -14,7 +14,8 @@ file carries only what is *not yet built*, so it does not drift against the code
 
 1. **catalog.yaml** — add `lint/catalog.yaml` and convert the core catalog from
    hardcoded maps to a loader (see [catalog](catalog.md)).
-2. **Hermetic type-aware ESLint** — finish the aspect-side type-graph gather +
-   the consumer-convention layer (see [web-project](web-project.md); planned).
-3. **rules_lint breadth backend** — wire it *only* for tools we do not wrap, when
-   that breadth is wanted.
+2. **Type-aware ESLint (finish)** — `web_project` already exposes the tsconfig and
+   type deps on `JsInfo`; feed them into the eslint aspect and set
+   `parserOptions.project` so `@typescript-eslint`'s type-aware rules run in the
+   sandbox. Verify against a consumer that enables those rules — there is no TS
+   target in this repo to test it (see [web-project](web-project.md)).
