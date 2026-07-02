@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the tagged module
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Derive version and archive integrity
         id: meta
@@ -35,7 +35,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       - name: Check out the registry
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: gavelcode/registry
           token: ${{ secrets.REGISTRY_TOKEN }}

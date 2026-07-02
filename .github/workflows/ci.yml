@@ -10,7 +10,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Bazel
         uses: actions/cache@v4
@@ -20,7 +20,7 @@ jobs:
           restore-keys: bazel-${{ runner.os }}-
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
@@ -39,7 +39,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: bazel-out/_coverage/_coverage_report.dat
           token: ${{ secrets.CODECOV_TOKEN }}
