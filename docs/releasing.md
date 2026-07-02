@@ -1,7 +1,9 @@
 ---
 title: Releasing
-type: reference
+type: how-to
 description: One command tags a version and publishes it to the gavel registry.
+resource: https://github.com/gavelcode/gavel-tools/blob/main/.github/ci/release.sh
+tags: [release, versioning, registry]
 ---
 
 # Releasing

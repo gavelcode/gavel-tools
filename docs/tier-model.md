@@ -1,7 +1,9 @@
 ---
 title: The hermetic analyzer driver
 type: explanation
-description: Why every analyzer runs sandboxed, and the maintenance contract for golangci-lint — the one that took custom code to get there.
+description: Why every analyzer runs sandboxed, and the two contracts — golangci-lint's driver and ESLint's pnpm store — that custom code holds in place.
+resource: https://github.com/gavelcode/gavel-tools/tree/main/lint/aspects
+tags: [hermeticity, sandbox, golangci-lint, eslint, maintenance-contract]
 ---
 
 # The hermetic analyzer driver
@@ -12,14 +14,22 @@ no host access. The principle that got them all there:
 > Before reaching for `no-sandbox`, ask whether the environment the tool needs is
 > already a Bazel artifact you can declare as an input.
 
-Most analyzers read source in isolation and were sandboxed from the start. The
-two that looked like they *forced* `no-sandbox` did not, once their environment
-was materialized as declared inputs: golangci-lint needs the whole package graph
-(rules_go's `go_pkg_info_aspect` emits it), and ESLint needs the consumer's
-flat-config plugin closure (rules_js's `JsInfo.npm_sources` carries it). There is
-no `no-sandbox` left anywhere in `lint/aspects/`.
+Most analyzers read source in isolation and were sandboxed from the start. Two
+looked like they *forced* `no-sandbox` and did not — but each costs a little
+custom code and a standing maintenance contract:
 
-## Materializing the build environment (the hermetic golangci-lint)
+- **golangci-lint** needs the whole package graph; rules_go's `go_pkg_info_aspect`
+  emits it, and a static driver reads it.
+- **ESLint** needs the consumer's flat-config plugin closure **and** a pnpm store
+  that resolves inside the sandbox; `JsInfo` carries the closure, and the wrapper
+  repairs the store.
+
+There is no `no-sandbox` left anywhere in `lint/aspects/`. The two contracts
+below are the price — and both fail the same treacherous way: **not at build
+time, but at lint time**, surfacing as `could not import …` or `Cannot find
+module …` long after the build goes green.
+
+## The hermetic golangci-lint
 
 golangci-lint loads and type-checks the whole package graph through
 `go/packages`. That looks like it forces `no-sandbox` — until you notice
@@ -40,12 +50,14 @@ gives each stdlib package the compiled archive from `go_sdk.libs` (`<pkg>.a`) as
 its export data — rules_go leaves that field empty, and without it golangci-lint
 cannot load export data for anything that imports the stdlib.
 
-> ⚠️ **Maintenance contract — read before bumping `rules_go` or `golangci-lint`.**
-> The Go path is the only analyzer where gavel carries code that shadows an
-> upstream: our static driver reimplements the JSON half of rules_go's
-> `gopackagesdriver` (~250 lines) because the shipped one shells out to `bazel`
-> and cannot run inside a sandbox. That buys full hermeticity, but it couples us
-> to **three contracts that are not stable public APIs**:
+> [!WARNING]
+> **Maintenance contract — read before bumping `rules_go` or `golangci-lint`.**
+>
+> The Go path is the only analyzer where gavel carries code that *shadows* an
+> upstream: the static driver reimplements the JSON half of rules_go's
+> `gopackagesdriver` because the shipped one shells out to `bazel` and cannot run
+> inside a sandbox. That buys full hermeticity, but couples us to **three
+> contracts that are not stable public APIs**:
 >
 > 1. **rules_go's `pkg.json` format** — the `__BAZEL_*__` path placeholders and
 >    `FlatPackage` field names.
@@ -56,12 +68,47 @@ cannot load export data for anything that imports the stdlib.
 > 3. **golangci-lint's `GOPACKAGESDRIVER` protocol**, which upstream documents as
 >    *best-effort / unsupported*.
 >
-> None of these break at build time — a drift surfaces as `could not import …` or
-> `no go files to analyze` at lint time. **So when you upgrade `rules_go` or
-> `golangci-lint`, re-run the driver end-to-end** (build the golangci aspect over
-> a real Go target and confirm clean SARIF) before trusting the gate. This is the
-> recurring tax for keeping golangci-lint *and* a closed sandbox; the considered
+> None of these break at build time. **So when you upgrade `rules_go` or
+> `golangci-lint`, re-run the driver end-to-end** — build the golangci aspect over
+> a real Go target and confirm a clean SARIF — before trusting the gate. This is
+> the recurring tax for keeping golangci-lint *and* a closed sandbox; the
 > alternatives — `nogo` (lose golangci-lint and `.golangci.yml`) or `no-sandbox`
-> (lose hermeticity) — were judged worse. Contrast Rust, which pays ~40 lines of
-> SARIF conversion because `rules_rust` ships a hermetic Clippy aspect; nobody
-> ships one for golangci-lint, so gavel owns the adapter.
+> (lose hermeticity) — were judged worse. Contrast Rust, which pays only SARIF
+> conversion because `rules_rust` ships a hermetic Clippy aspect; nobody ships one
+> for golangci-lint, so gavel owns the adapter.
+
+## The hermetic ESLint
+
+ESLint resolves the consumer's plugins from `JsInfo.npm_sources` and its own
+runtime from the pinned tool — both are Bazel artifacts, so the run is sandboxed
+with no host `node_modules`. One wrinkle needs custom code: when a **downstream
+module** consumes gavel-tools, rules_js materializes the pnpm store without its
+`s/` layer, so every `../../s/<pkg>` symlink inside the store dangles and ESLint
+cannot load even its own dependencies. The wrapper
+(`lint/lang/typescript/eslint/wrapper`) reconstructs the `s/` store across the
+runfiles and keeps the rules_js Node fs-patch on (`JS_BINARY__PATCH_NODE_FS=1`),
+so Node resolves *within* the runfiles instead of following symlinks out to the
+raw, unrepaired output tree.
+
+> [!WARNING]
+> **Maintenance contract — read before bumping `rules_js` or ESLint.**
+>
+> The store repair couples us to **two things that are not stable public APIs**:
+> the rules_js pnpm store layout (the `s/` directory and the `../../s/<pkg>`
+> symlink shape) and the `JS_BINARY__PATCH_NODE_FS` fs-patch behaviour.
+>
+> Two properties make this uniquely easy to break *silently*:
+>
+> 1. **It fails at lint time, not build time** — a drift surfaces as
+>    `executionSuccessful: false` / `Cannot find module …`, which gavel records as
+>    a failed tool execution, not a build error.
+> 2. **It only reproduces cross-module.** In gavel-tools' *own* build the store is
+>    materialized correctly, so no native unit or e2e test can catch it — only a
+>    **downstream consumer running the aspect** can. That consumer is gavel's
+>    `gavel judge` dogfooding gate in CI.
+>
+> **So when you bump `rules_js` or ESLint, run the ESLint aspect end-to-end from a
+> downstream consumer** — build the aspect over a real TypeScript target and
+> confirm the SARIF is `executionSuccessful` — before trusting the gate. A stale
+> path in this repair once shipped broken for months precisely because nothing
+> exercised it end-to-end.

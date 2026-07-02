@@ -9,8 +9,9 @@
 output to SARIF.** It does two things:
 
 - **Lints** — Starlark aspects that run each language's analyzers as Bazel
-  aspects (so they ride the action cache), per-language Go wrappers that emit
-  each tool's **native SARIF**, and a shared architecture-test library.
+  aspects (so they ride the action cache), per-language Go wrappers that
+  **normalize each tool's output to SARIF** (native where the tool emits it,
+  converted where it does not), and a shared architecture-test library.
 - **Scaffolds builds** — macros (e.g. `web_project`) that generate a project's
   whole Bazel build graph so consumers stop hand-wiring it.
 
@@ -19,8 +20,8 @@ usable on its own: the interface is **SARIF files on disk** (output group
 `gavel_submissions`) — no Go imports cross the boundary, so any SARIF-aware
 consumer can read the results.
 
-> **Status: alpha.** Aspect labels, the catalog format, and the macro API may
-> still change.
+> [!NOTE]
+> **Alpha.** Aspect labels, the catalog format, and the macro API may still change.
 
 ## Usage
 
@@ -35,8 +36,8 @@ common --registry=https://gavelcode.github.io/registry
 ```
 
 ```python
-# MODULE.bazel — pick the latest version from the registry
-bazel_dep(name = "gavel_tools", version = "0.2.0")
+# MODULE.bazel — the registry lists every published version; pin the latest
+bazel_dep(name = "gavel_tools", version = "X.Y.Z")
 ```
 
 Run a lint aspect over your targets — findings land as `*.sarif` under
@@ -65,18 +66,22 @@ load("@gavel_tools//macros:web.bzl", "web_project")
 | TypeScript | ESLint, archtest |
 | Rust       | Clippy, archtest |
 
-> ⚠️ **Go users:** the hermetic golangci-lint aspect carries a gavel-owned static
-> `gopackagesdriver` coupled to rules_go and golangci-lint internals, and needs
-> `--@rules_go//go/config:export_stdlib=True`. **Re-validate it whenever you bump
-> `rules_go` or `golangci-lint`** — see the maintenance contract in
-> [the sandbox axis](docs/tier-model.md#materializing-the-build-environment-the-hermetic-golangci-lint).
+> [!WARNING]
+> Two aspects run hermetic through gavel-owned glue coupled to build-rule
+> internals, and **fail at lint time, not build time** if that glue drifts: the
+> Go **golangci-lint** driver (which needs `--@rules_go//go/config:export_stdlib=True`)
+> and the TypeScript **ESLint** pnpm-store repair. **Re-validate the relevant one
+> whenever you bump `rules_go` / golangci-lint or `rules_js` / ESLint** — the
+> maintenance contracts are in
+> [the hermetic analyzer driver](docs/tier-model.md).
 
 ## Documentation
 
-The [`docs/`](docs/index.md) bundle explains the design — the sandbox axis, the
-SARIF boundary, the language catalog, and the `web_project` macro. Each concept
-is one markdown file with a `type` / `title` / `description` header, mapped by
-[`index.md`](docs/index.md).
+The [`docs/`](docs/index.md) bundle explains the design — the hermetic driver,
+the SARIF boundary, the language catalog, and the `web_project` macro. It is an
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle: each concept is one markdown file with a `type` / `title` / `description`
+header, indexed by [`index.md`](docs/index.md).
 
 ## License
 

@@ -1,58 +1,71 @@
 ---
-title: The catalog — two-layer config
+title: The catalog — two-layer tool config
 type: reference
-description: catalog.yaml is the default menu of language→tools; gavel.yaml selects per project.
+description: catalog.yaml is the published menu of what gavel-tools can lint per language; a consumer's gavel.yaml selects from it per project.
+resource: https://github.com/gavelcode/gavel-tools/blob/main/lint/catalog.yaml
+tags: [catalog, configuration, gavel.yaml]
 ---
 
-# The catalog — two-layer config
+# The catalog — two-layer tool config
 
-> **Status: designed, not yet built.** This is the plan for `lint/catalog.yaml`
-> and the core loader (see the [roadmap](roadmap.md)); the core still uses
-> hardcoded maps today.
+Two layers keep *what a tool is* separate from *which tools a project runs*:
 
-## Layer 1 — `lint/catalog.yaml` (the menu)
+| Layer | File | Owned by | Answers |
+|-------|------|----------|---------|
+| 1 — the menu | `@gavel_tools//lint:catalog.yaml` | gavel-tools | what exists per language, and how to run it |
+| 2 — the selection | a consumer's `gavel.yaml` | the consumer | which of those a project runs |
 
-Source of truth for *what exists* per language, *how to invoke it*, and *what is
-on by default*. Format is **YAML** (declarative data; the Go core parses it with
-`yaml.v3`; consistent with `gavel.yaml`; no `bazel query` needed as a `.bzl`
-would require).
+A consumer never redefines what a tool *is* — it only selects from the menu. The
+guiding rule: **gavel cannot have a capability gavel-tools does not publish.**
+
+## Layer 1 — the published menu
+
+`catalog.yaml` lists, per language, every tool gavel-tools can run — for each: the
+`aspect` that runs it, the `sarif_suffix` it emits, and (only when needed) its
+`build_flags` and tool `binary` repo. It is the single source of truth, and its
+own header comment documents every field, so this page shows only a taste rather
+than copying it:
 
 ```yaml
-version: 1
 languages:
   go:
-    tools:
-      - { name: golangci-lint, tier: native, aspect: go_golangci_lint_submission_aspect, output_group: gavel_submissions, default: true }
-      - { name: archtest,      tier: native, aspect: go_archtest_submission_aspect,      output_group: gavel_submissions, default: true }
-  java:
-    tools:
-      - { name: error-prone, tier: native,     aspect: java_error_prone_submission_aspect, output_group: gavel_submissions, default: true }
-      - { name: pmd,         tier: native,     aspect: java_pmd_submission_aspect,         output_group: gavel_submissions, default: true }
-      - { name: spotbugs,    tier: native,     aspect: java_spotbugs_submission_aspect,    output_group: gavel_submissions, default: true }
-      - { name: archtest,    tier: native,     aspect: java_archtest_submission_aspect,    output_group: gavel_submissions, default: true }
-  # python, rust, typescript …
+    - name: golangci-lint
+      aspect: go_golangci_lint_submission_aspect
+      sarif_suffix: .golangci.sarif
+      build_flags: ["--@rules_go//go/config:export_stdlib=True"]
+      binary: golangci_lint_binary
+  typescript:
+    - name: eslint
+      aspect: typescript_eslint_submission_aspect
+      sarif_suffix: .eslint.sarif
+  # java, python, rust …
 ```
 
-Every entry is a gavel-tools native-SARIF wrapper (`tier: native`). Each carries
-exactly what the core needs to generate the bazelrc and decide what to run:
-`aspect`, `output_group`, `default`.
+> [!NOTE]
+> The catalog can't drift from the aspects it names: `catalog_test`
+> (`//lint:lint_test`) fails if any listed `aspect` is missing from
+> `//lint/aspects:defs.bzl`, or if an aspect ships without a catalog entry.
 
-## Layer 2 — consumer `gavel.yaml` (the selection)
+## Layer 2 — the per-project selection
 
-Selects/overrides per project. No `linters` section → use every `default: true`
-entry (basic mode).
+A consumer's `gavel.yaml` picks tools per language with a `tooling` map:
 
 ```yaml
 projects:
   - name: payment-service
-    languages: [java]
-    linters:
-      java: [error-prone, spotbugs]   # a subset of the java defaults
+    tooling:
+      java: [error-prone, spotbugs]   # a subset of the java menu
+      typescript: [eslint, archtest]
 ```
 
-## Core impact
+> [!IMPORTANT]
+> Selection is **explicit, never implicit**. A language with no tools listed is an
+> error — not a silent "run everything" default; gavel refuses to guess. Listing a
+> tool the catalog does not publish for that language is likewise an error.
 
-`core/.../catalog/*.go` stops being hardcoded maps and becomes a **loader** of
-`@gavel_tools//lint:catalog.yaml` (read via Bazel runfiles — the CLI already uses
-runfiles). Wiring detail to resolve in implementation: the CLI needs a Bazel dep
-on `@gavel_tools//lint:catalog.yaml`.
+## How a consumer loads it
+
+The consumer reads `@gavel_tools//lint:catalog.yaml` through Bazel runfiles at
+runtime; the `aspects_bzl` label in the file tells it where the aspects live under
+whatever name it binds gavel-tools. In gavel this replaced hardcoded per-language
+maps with a loader, so the menu is owned in exactly one place — here.

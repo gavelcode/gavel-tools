@@ -2,6 +2,8 @@
 title: Repository layout
 type: reference
 description: The lint/ + macros/ structure, the resulting labels, and tool-binary ownership.
+resource: https://github.com/gavelcode/gavel-tools
+tags: [layout, bazel, structure]
 ---
 
 # Repository layout
@@ -16,7 +18,7 @@ gavel-tools/
 ├── docs/                              # this doc bundle
 │
 ├── lint/                             # LINTERS → consumed via --aspects
-│   ├── catalog.yaml                  #   language→tools menu (planned — see catalog.md)
+│   ├── catalog.yaml                  #   language→tools menu (see catalog.md)
 │   ├── aspects/                      #   lint aspects: one <lang>.bzl each; defs.bzl re-exports them
 │   ├── archtest/                     #   shared Go arch-rules library
 │   └── lang/                         #   per-language wrappers + tool repos
@@ -34,7 +36,7 @@ gavel-tools/
 
 - `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect`
 - `@gavel_tools//lint/lang/go/golangci_lint:repositories.bzl`
-- `@gavel_tools//lint:catalog.yaml` (planned)
+- `@gavel_tools//lint:catalog.yaml`
 - `@gavel_tools//macros:web.bzl%web_project`
 
 The root holds only `lint/`, `macros/`, `docs/` and the module files — separated

@@ -42,12 +42,13 @@ See [`docs/repository-layout.md`](docs/repository-layout.md) for the full map an
 1. Add the aspect in `lint/aspects/<language>.bzl` and re-export it from
    `lint/aspects/defs.bzl` (the stable public entry point).
 2. Add the per-tool wrapper under `lint/lang/<language>/<tool>/` (Go binary that
-   runs the tool and emits its **native** SARIF).
+   runs the tool and produces SARIF — natively where the tool emits it, via a
+   converter where it does not).
 3. Declare the tool's binary repository in `MODULE.bazel`.
 4. For architecture validation, extend `lint/archtest/`.
 5. Add tests, and document the tool in the relevant `docs/` concept file.
 
-The organizing principle is the **sandbox axis** — read
+The organizing principle is **hermeticity** — read
 [`docs/tier-model.md`](docs/tier-model.md) before deciding how a tool runs.
 
 ## Pull requests
