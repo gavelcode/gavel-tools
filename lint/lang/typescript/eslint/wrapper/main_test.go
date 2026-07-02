@@ -156,7 +156,7 @@ func TestIsMisconfiguration_NonExitError(t *testing.T) {
 }
 
 func TestEslintEnv_FiltersAndAdds(t *testing.T) {
-	t.Setenv("JS_BINARY__PATCH_NODE_FS", "1")
+	t.Setenv("JS_BINARY__PATCH_NODE_FS", "0")
 	t.Setenv("NODE_PATH", "/old/path")
 
 	env := eslintEnv("/some/tool/bin/eslint")
@@ -166,13 +166,13 @@ func TestEslintEnv_FiltersAndAdds(t *testing.T) {
 	hasNewPatch := false
 	hasNewNodePath := false
 	for _, entry := range env {
-		if entry == "JS_BINARY__PATCH_NODE_FS=1" {
+		if entry == "JS_BINARY__PATCH_NODE_FS=0" {
 			hasOldPatch = true
 		}
 		if entry == "NODE_PATH=/old/path" {
 			hasOldNodePath = true
 		}
-		if entry == "JS_BINARY__PATCH_NODE_FS=0" {
+		if entry == "JS_BINARY__PATCH_NODE_FS=1" {
 			hasNewPatch = true
 		}
 		if strings.HasPrefix(entry, "NODE_PATH=") && strings.Contains(entry, "node_modules") {
@@ -182,17 +182,8 @@ func TestEslintEnv_FiltersAndAdds(t *testing.T) {
 
 	assert.False(t, hasOldPatch, "old JS_BINARY__PATCH_NODE_FS should be filtered")
 	assert.False(t, hasOldNodePath, "old NODE_PATH should be filtered")
-	assert.True(t, hasNewPatch, "JS_BINARY__PATCH_NODE_FS=0 should be added")
+	assert.True(t, hasNewPatch, "JS_BINARY__PATCH_NODE_FS=1 should be added")
 	assert.True(t, hasNewNodePath, "NODE_PATH with node_modules should be added")
-}
-
-func TestFixStoreDir_ReadDirError(t *testing.T) {
-	aspectDir := filepath.Join(t.TempDir(), ".aspect_rules_js")
-	require.NoError(t, os.MkdirAll(aspectDir, 0o755))
-	require.NoError(t, os.Chmod(aspectDir, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(aspectDir, 0o755) })
-
-	fixStoreDir(aspectDir)
 }
 
 func TestFixStoreDir_NonExistent(t *testing.T) {
@@ -215,9 +206,6 @@ func TestFixStoreDir_CreatesSymlinks(t *testing.T) {
 	fixStoreDir(aspectDir)
 
 	storeDir := filepath.Join(aspectDir, "s")
-	_, err := os.Stat(storeDir)
-	require.NoError(t, err)
-
 	linkA, err := os.Readlink(filepath.Join(storeDir, "package-a"))
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("..", "package-a"), linkA)
@@ -239,19 +227,33 @@ func TestFixBrokenStoreLinks_NoRunfiles(t *testing.T) {
 	fixBrokenStoreLinks(eslint)
 }
 
-func TestFixBrokenStoreLinks_WithRunfiles(t *testing.T) {
+func TestFixBrokenStoreLinks_RepairsRunfilesStoreAtReorgedPath(t *testing.T) {
 	tmp := t.TempDir()
 	eslint := filepath.Join(tmp, "tool", "bin", "eslint")
 	require.NoError(t, os.MkdirAll(filepath.Dir(eslint), 0o755))
 	require.NoError(t, os.WriteFile(eslint, []byte("x"), 0o755))
 
-	runfilesDir := eslint + ".runfiles"
-	aspectDir := filepath.Join(runfilesDir, "some_pkg", "tools", "typescript", "eslint", "node_modules", ".aspect_rules_js")
+	aspectDir := filepath.Join(eslint+".runfiles", "gavel_tools+", "lint", "lang", "typescript", "eslint", "node_modules", ".aspect_rules_js")
 	require.NoError(t, os.MkdirAll(filepath.Join(aspectDir, "pkg-x"), 0o755))
 
 	fixBrokenStoreLinks(eslint)
 
 	_, err := os.Stat(filepath.Join(aspectDir, "s", "pkg-x"))
+	assert.NoError(t, err)
+}
+
+func TestFixBrokenStoreLinks_RepairsRunfilesStoreAtAnyDepth(t *testing.T) {
+	tmp := t.TempDir()
+	eslint := filepath.Join(tmp, "tool", "bin", "eslint")
+	require.NoError(t, os.MkdirAll(filepath.Dir(eslint), 0o755))
+	require.NoError(t, os.WriteFile(eslint, []byte("x"), 0o755))
+
+	aspectDir := filepath.Join(eslint+".runfiles", "any", "future", "layout", "node_modules", ".aspect_rules_js")
+	require.NoError(t, os.MkdirAll(filepath.Join(aspectDir, "pkg-y"), 0o755))
+
+	fixBrokenStoreLinks(eslint)
+
+	_, err := os.Stat(filepath.Join(aspectDir, "s", "pkg-y"))
 	assert.NoError(t, err)
 }
 

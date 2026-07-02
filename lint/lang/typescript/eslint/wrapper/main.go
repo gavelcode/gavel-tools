@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ const (
 	dirPermission       = 0o755
 	filePermission      = 0o644
 	envCapacityOverhead = 2
+	storeParentDirName  = ".aspect_rules_js"
 )
 
 func main() { os.Exit(execute()) }
@@ -71,7 +73,8 @@ func run(eslint, outputPath, config string, files []string) error {
 }
 
 // resolveESLintBin locates the ESLint executable, falling back to PATH, then
-// rewrites the path for the Bazel sandbox and repairs its store symlinks.
+// rewrites the path for the Bazel sandbox and repairs its pnpm store symlinks so
+// ESLint can resolve its own dependencies.
 func resolveESLintBin(eslint string) (string, error) {
 	if eslint == "" {
 		bin, err := exec.LookPath("eslint")
@@ -115,14 +118,15 @@ func createReportFile() (string, func(), error) {
 func runESLint(eslintBin, outputPath, config, reportPath string, files []string) error {
 	arguments := buildArgs(reportPath, config, files)
 	cmd := exec.Command(eslintBin, arguments...)
+	var stderrBuf strings.Builder
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	cmd.Env = eslintEnv(eslintBin)
 	runErr := cmd.Run()
 	if runErr != nil && !isLintExitCode(runErr) {
-		reason := fmt.Sprintf("eslint failed to run: %v", runErr)
+		reason := fmt.Sprintf("eslint failed to run: %v\n%s", runErr, stderrBuf.String())
 		if isMisconfiguration(runErr) {
-			reason = fmt.Sprintf("eslint configuration error (exit 2): %v", runErr)
+			reason = fmt.Sprintf("eslint configuration error (exit 2): %v\n%s", runErr, stderrBuf.String())
 		}
 		return sarif.WriteFailed(outputPath, "eslint", reason)
 	}
@@ -174,6 +178,11 @@ func isMisconfiguration(err error) bool {
 	return false
 }
 
+// eslintEnv builds the environment for the sandboxed ESLint run. It keeps the
+// rules_js node fs-patch on (JS_BINARY__PATCH_NODE_FS=1) so Node resolves the
+// pnpm store through the runfiles tree instead of following symlinks out to the
+// raw output tree, where the store layout is incomplete; with the patch off,
+// ESLint cannot load its own dependencies.
 func eslintEnv(eslintBin string) []string {
 	environment := make([]string, 0, len(os.Environ())+envCapacityOverhead)
 	for _, entry := range os.Environ() {
@@ -185,7 +194,7 @@ func eslintEnv(eslintBin string) []string {
 		}
 		environment = append(environment, entry)
 	}
-	environment = append(environment, "JS_BINARY__PATCH_NODE_FS=0")
+	environment = append(environment, "JS_BINARY__PATCH_NODE_FS=1")
 	binDir := filepath.Dir(eslintBin)
 	toolDir := filepath.Dir(binDir)
 	nodeModules := filepath.Join(toolDir, "node_modules")
@@ -196,19 +205,41 @@ func eslintEnv(eslintBin string) []string {
 	return environment
 }
 
+// fixBrokenStoreLinks reconstructs the pnpm `s/` store directory that rules_js
+// leaves out of the materialized tree, without which every `../../s/<pkg>`
+// package symlink dangles and ESLint cannot load its dependencies. It repairs
+// the store next to the ESLint launcher plus every store found in its runfiles.
 func fixBrokenStoreLinks(eslintBin string) {
 	binDir := filepath.Dir(eslintBin)
 	toolDir := filepath.Dir(binDir)
-	fixStoreDir(filepath.Join(toolDir, "node_modules", ".aspect_rules_js"))
+	fixStoreDir(filepath.Join(toolDir, "node_modules", storeParentDirName))
 
-	runfilesDir := eslintBin + ".runfiles"
-	if _, err := os.Stat(runfilesDir); err != nil {
-		return
+	for _, aspectDir := range findStoreDirs(eslintBin + ".runfiles") {
+		fixStoreDir(aspectDir)
 	}
-	matches, _ := filepath.Glob(filepath.Join(runfilesDir, "*", "tools", "typescript", "eslint", "node_modules", ".aspect_rules_js"))
-	for _, m := range matches {
-		fixStoreDir(m)
+}
+
+// findStoreDirs walks a runfiles tree and returns every pnpm store directory it
+// contains, wherever the tool's package sits. Locating the store by name rather
+// than by a hard-coded path means a gavel-tools directory reorg cannot silently
+// break store-link repair (an earlier `tools/` -> `lint/lang/` move did exactly
+// that, leaving ESLint unable to resolve its own dependencies in the sandbox).
+func findStoreDirs(root string) []string {
+	if _, err := os.Stat(root); err != nil {
+		return nil
 	}
+	var dirs []string
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() && entry.Name() == storeParentDirName {
+			dirs = append(dirs, path)
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	return dirs
 }
 
 func fixStoreDir(aspectDir string) {
