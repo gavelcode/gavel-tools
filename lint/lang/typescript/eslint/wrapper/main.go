@@ -228,18 +228,18 @@ func findStoreDirs(root string) []string {
 	if _, err := os.Stat(root); err != nil {
 		return nil
 	}
-	var dirs []string
+	var storeDirs []string
 	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if entry.IsDir() && entry.Name() == storeParentDirName {
-			dirs = append(dirs, path)
+			storeDirs = append(storeDirs, path)
 			return filepath.SkipDir
 		}
 		return nil
 	})
-	return dirs
+	return storeDirs
 }
 
 func fixStoreDir(aspectDir string) {
