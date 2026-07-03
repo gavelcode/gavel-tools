@@ -42,6 +42,18 @@ action inputs and point golangci-lint at a **static driver**
 out to Bazel or the network. The result is fully sandboxed: no host `go`, no
 module fetches, every input declared, cache-correct.
 
+No published integration manages this. Aspect's `rules_lint` shipped a golangci
+aspect, hit the same transitive-sources problem, declared it a *fatal bug* and
+[removed golangci-lint support entirely](https://github.com/aspect-build/rules_lint/pull/207).
+rules_go's built-in `nogo` runs at compile time with correct caching but only
+executes `go/analysis` analyzers, not the full golangci suite; the
+proofs-of-concept that port golangci's linters into nogo warn against production
+use, and golangci-lint's
+[own tracking issue for Bazel support](https://github.com/golangci/golangci-lint/issues/1473)
+has sat open since 2020. Every attempt gives up one of three things —
+golangci-lint itself, correct caching, or the sandbox. The static driver is how
+gavel keeps all three.
+
 The driver mirrors rules_go's own (build-tag filtering, stdlib import linking,
 test-file splitting) but adds what a sandboxed run needs: it collapses the three
 Bazel path placeholders to the exec root, merges the two same-ID `pkg.json` a
