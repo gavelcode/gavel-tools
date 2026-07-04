@@ -13,9 +13,25 @@ import (
 )
 
 const (
-	missingArgCode = 2
-	dirPermission  = 0o755
+	missingArgCode    = 2
+	dirPermission     = 0o755
+	rulesetPermission = 0o644
 )
+
+const pmdRuleset = `<?xml version="1.0"?>
+<ruleset name="gavel" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0">
+  <rule ref="category/java/bestpractices.xml"/>
+  <rule ref="category/java/codestyle.xml"/>
+  <rule ref="category/java/design.xml">
+    <exclude name="LoosePackageCoupling"/>
+  </rule>
+  <rule ref="category/java/documentation.xml"/>
+  <rule ref="category/java/errorprone.xml"/>
+  <rule ref="category/java/multithreading.xml"/>
+  <rule ref="category/java/performance.xml"/>
+  <rule ref="category/java/security.xml"/>
+</ruleset>
+`
 
 func main() { os.Exit(execute()) }
 
@@ -61,13 +77,19 @@ func run(pmdPath, outputPath string, files []string) error {
 	}
 	defer func() { _ = os.Remove(fileList) }()
 
+	rulesetPath, err := writeRuleset(filepath.Dir(outputPath))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(rulesetPath) }()
+
 	arguments := []string{
 		"check",
 		"--no-cache",
 		"--no-fail-on-violation",
 		"--format=sarif",
 		"--report-file=" + outputPath,
-		"--rulesets=category/java/bestpractices.xml,category/java/codestyle.xml,category/java/design.xml,category/java/documentation.xml,category/java/errorprone.xml,category/java/multithreading.xml,category/java/performance.xml,category/java/security.xml",
+		"--rulesets=" + rulesetPath,
 		"--file-list=" + fileList,
 	}
 	cmd := exec.Command(pmdPath, arguments...)
@@ -97,6 +119,14 @@ func writeFileList(files []string) (_ string, err error) {
 		}
 	}
 	return listFile.Name(), nil
+}
+
+func writeRuleset(dir string) (string, error) {
+	path := filepath.Join(dir, "gavel-pmd-ruleset.xml")
+	if err := os.WriteFile(path, []byte(pmdRuleset), rulesetPermission); err != nil {
+		return "", fmt.Errorf("write ruleset: %w", err)
+	}
+	return path, nil
 }
 
 func commandEnv() []string {
