@@ -282,3 +282,32 @@ func TestResolveBazelExternal_ExternalPrefixNoMatch(t *testing.T) {
 
 	assert.Equal(t, "external/nomatch", got)
 }
+
+func TestWriteRuleset_ExcludesLoosePackageCoupling(t *testing.T) {
+	path, err := writeRuleset(t.TempDir())
+	require.NoError(t, err)
+
+	body, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(body), "LoosePackageCoupling")
+	assert.Contains(t, string(body), "category/java/design.xml")
+}
+
+func TestWriteRuleset_WriteError(t *testing.T) {
+	_, err := writeRuleset(filepath.Join(t.TempDir(), "missing"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "write ruleset")
+}
+
+func TestRun_RulesetWriteError(t *testing.T) {
+	pmd := writeFakeScript(t, 0)
+	roDir := t.TempDir()
+	require.NoError(t, os.Chmod(roDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(roDir, 0o755) })
+
+	err := run(pmd, filepath.Join(roDir, "out.sarif"), []string{"Test.java"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "write ruleset")
+}
