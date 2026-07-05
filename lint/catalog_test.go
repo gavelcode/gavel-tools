@@ -66,6 +66,23 @@ func TestCatalog_ListsExactlyTheExportedAspects(t *testing.T) {
 		"catalog.yaml must list exactly the aspects exported by defs.bzl — no drift")
 }
 
+func TestCatalog_ClippyCapturesOutputInsteadOfFailingTheBuild(t *testing.T) {
+	catalog := loadCatalog(t)
+
+	var clippy toolEntry
+	for _, tool := range catalog.Languages["rust"] {
+		if tool.Name == "clippy" {
+			clippy = tool
+		}
+	}
+	require.Equal(t, "clippy", clippy.Name, "rust/clippy must exist in the catalog")
+
+	assert.Contains(t, clippy.BuildFlags, "--@rules_rust//rust/settings:capture_clippy_output=True",
+		"without capture, rules_rust runs Clippy as a check that fails the build on findings")
+	assert.Contains(t, clippy.BuildFlags, "--@rules_rust//rust/settings:clippy_output_diagnostics=True",
+		"the submission aspect reads the captured diagnostics to produce SARIF")
+}
+
 func TestCatalog_EntriesAreWellFormed(t *testing.T) {
 	catalog := loadCatalog(t)
 
