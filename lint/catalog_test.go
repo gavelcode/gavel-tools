@@ -83,6 +83,22 @@ func TestCatalog_ClippyCapturesOutputInsteadOfFailingTheBuild(t *testing.T) {
 		"the submission aspect reads the captured diagnostics to produce SARIF")
 }
 
+func TestCatalog_GoStdlibFlagUsesCanonicalRulesGoName(t *testing.T) {
+	catalog := loadCatalog(t)
+
+	var golangci toolEntry
+	for _, tool := range catalog.Languages["go"] {
+		if tool.Name == "golangci-lint" {
+			golangci = tool
+		}
+	}
+	require.Equal(t, "golangci-lint", golangci.Name, "go/golangci-lint must exist in the catalog")
+
+	require.Len(t, golangci.BuildFlags, 1)
+	assert.True(t, strings.HasPrefix(golangci.BuildFlags[0], "--@@rules_go+//"),
+		"export_stdlib must use rules_go's canonical repo name (@@rules_go+) so it resolves on consumers that alias rules_go under a different apparent name")
+}
+
 func TestCatalog_EntriesAreWellFormed(t *testing.T) {
 	catalog := loadCatalog(t)
 
