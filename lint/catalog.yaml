@@ -69,6 +69,9 @@ languages:
     - name: clippy
       aspect: rust_clippy_submission_aspect
       sarif_suffix: .clippy.sarif
+      build_flags:
+        - "--@rules_rust//rust/settings:capture_clippy_output=True"
+        - "--@rules_rust//rust/settings:clippy_output_diagnostics=True"
     - name: archtest
       aspect: rust_archtest_submission_aspect
       sarif_suffix: .archtest.sarif
