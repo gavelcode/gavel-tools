@@ -94,7 +94,7 @@ func TestRun_MkdirAllError(t *testing.T) {
 	configPath := filepath.Join(dir, "arch.yml")
 	require.NoError(t, os.WriteFile(configPath, []byte("layers: {}\nrules: []\n"), 0o644))
 
-	err := run(configPath, "/dev/null/impossible/out.sarif", []string{"file.go"})
+	err := run(configPath, "/dev/null/impossible/out.sarif", "", []string{"file.go"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create output dir")
@@ -104,7 +104,7 @@ func TestRun_LoadConfigError(t *testing.T) {
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "out", "result.sarif")
 
-	err := run("/nonexistent/arch.yml", outPath, []string{"file.go"})
+	err := run("/nonexistent/arch.yml", outPath, "", []string{"file.go"})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "load config")
@@ -118,7 +118,7 @@ func TestRun_EvaluateFileError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal", "domain"), 0o755))
 	outPath := filepath.Join(dir, "out", "result.sarif")
 
-	err := run(configPath, outPath, []string{"internal/domain/missing.go"})
+	err := run(configPath, outPath, "", []string{"internal/domain/missing.go"})
 
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(outPath)
@@ -137,7 +137,7 @@ func TestRun_WriteSARIFError(t *testing.T) {
 	require.NoError(t, os.Chmod(outDir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(outDir, 0o755) })
 
-	err := run(configPath, filepath.Join(outDir, "result.sarif"), []string{srcFile})
+	err := run(configPath, filepath.Join(outDir, "result.sarif"), "", []string{srcFile})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write sarif")
@@ -154,7 +154,7 @@ func TestRun_ProducesValidSARIF(t *testing.T) {
 	require.NoError(t, os.WriteFile(goFile, []byte("package order\n\nimport \"fmt\"\n\nvar _ = fmt.Println\n"), 0o644))
 	outFile := filepath.Join(dir, "out", "results.sarif")
 
-	err := run(configPath, outFile, []string{"internal/domain/order/order.go"})
+	err := run(configPath, outFile, "", []string{"internal/domain/order/order.go"})
 
 	require.NoError(t, err)
 	data, readErr := os.ReadFile(outFile)
@@ -493,4 +493,63 @@ func writeGoSource(t *testing.T, source string) string {
 	path := filepath.Join(dir, "test.go")
 	require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
 	return path
+}
+
+func countViolations(t *testing.T, sarifPath string) int {
+	t.Helper()
+	data, err := os.ReadFile(sarifPath)
+	require.NoError(t, err)
+	var doc struct {
+		Runs []struct {
+			Results []map[string]any `json:"results"`
+		} `json:"runs"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	total := 0
+	for _, run := range doc.Runs {
+		total += len(run.Results)
+	}
+	return total
+}
+
+func archProbeConfig(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "arch.yml")
+	require.NoError(t, os.WriteFile(path, []byte(
+		"layers:\n"+
+			"  domain:\n    - internal/domain/...\n"+
+			"  infra:\n    - internal/infra/...\n"+
+			"rules:\n"+
+			"  - name: domain-no-infra\n    source: domain\n    deny: [infra]\n"), 0o644))
+	return path
+}
+
+func TestRun_ModulePrefixDetectsQualifiedImport(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	configPath := archProbeConfig(t, dir)
+	srcDir := filepath.Join(dir, "internal", "domain", "order")
+	require.NoError(t, os.MkdirAll(srcDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "order.go"),
+		[]byte("package order\n\nimport \"github.com/acme/app/internal/infra/db\"\n"), 0o644))
+	outPath := filepath.Join(dir, "out", "result.sarif")
+
+	require.NoError(t, run(configPath, outPath, "github.com/acme/app", []string{"internal/domain/order/order.go"}))
+
+	assert.Equal(t, 1, countViolations(t, outPath))
+}
+
+func TestRun_NoPrefixMissesQualifiedImport(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	configPath := archProbeConfig(t, dir)
+	srcDir := filepath.Join(dir, "internal", "domain", "order")
+	require.NoError(t, os.MkdirAll(srcDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "order.go"),
+		[]byte("package order\n\nimport \"github.com/acme/app/internal/infra/db\"\n"), 0o644))
+	outPath := filepath.Join(dir, "out", "result.sarif")
+
+	require.NoError(t, run(configPath, outPath, "", []string{"internal/domain/order/order.go"}))
+
+	assert.Equal(t, 0, countViolations(t, outPath))
 }
