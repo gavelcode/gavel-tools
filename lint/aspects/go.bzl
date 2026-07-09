@@ -168,6 +168,22 @@ go_golangci_lint_submission_aspect = aspect(
     },
 )
 
+# _go_module_prefix recovers the module path from the target's importpath so the
+# wrapper can strip it off imports and match them to layers. Deriving it here
+# keeps the action hermetic: go.mod is never read from the sandbox, where it does
+# not exist.
+def _go_module_prefix(target, ctx):
+    importpath = getattr(target[GoLibrary], "importpath", "")
+    package = ctx.label.package
+    if not importpath:
+        return ""
+    if not package:
+        return importpath
+    suffix = "/" + package
+    if importpath.endswith(suffix):
+        return importpath[:-len(suffix)]
+    return ""
+
 def _go_archtest_aspect_impl(target, ctx):
     transitive = _collect_dep_submissions(ctx)
     if GoLibrary not in target:
@@ -189,6 +205,8 @@ def _go_archtest_aspect_impl(target, ctx):
         arguments = [
             "--config",
             ".gavel/architecture.yml",
+            "--module-prefix",
+            _go_module_prefix(target, ctx),
             "--out",
             output.path,
         ] + [src.path for src in srcs],

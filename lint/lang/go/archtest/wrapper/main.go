@@ -22,6 +22,7 @@ func main() { os.Exit(execute()) }
 func execute() int {
 	config := flag.String("config", "", "Path to architecture.yml")
 	outputFlag := flag.String("out", "", "SARIF output path")
+	modulePrefix := flag.String("module-prefix", "", "Go module path used to strip import prefixes; falls back to go.mod when empty")
 	flag.Parse()
 
 	if *config == "" {
@@ -39,14 +40,14 @@ func execute() int {
 		return exitUsageError
 	}
 
-	if err := run(*config, *outputFlag, files); err != nil {
+	if err := run(*config, *outputFlag, *modulePrefix, files); err != nil {
 		fmt.Fprintf(os.Stderr, "run archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, outputPath string, files []string) error {
+func run(configPath, outputPath, modulePrefix string, files []string) error {
 	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -56,7 +57,9 @@ func run(configPath, outputPath string, files []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	modulePrefix := detectModulePrefix()
+	if modulePrefix == "" {
+		modulePrefix = detectModulePrefix()
+	}
 
 	var allViolations []archtest.Violation
 	var failures []string
