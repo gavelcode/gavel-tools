@@ -7,6 +7,7 @@ needed (see docs/tier-model.md). archtest is a pure source-parsing wrapper.
 """
 
 load("@rules_go//go:def.bzl", "GoLibrary")
+load("@rules_go//go/private:providers.bzl", "GoStdLib")
 load(
     "@rules_go//go/tools/gopackagesdriver:aspect.bzl",
     "GoPkgInfo",
@@ -68,16 +69,19 @@ def _go_golangci_lint_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".golangci.sarif")
 
-    # rules_go ships the compiled stdlib as pre-built .a archives but leaves their
-    # ExportFile empty in stdlib.pkg.json. The driver needs their directory to wire
-    # each stdlib package to its archive, or golangci-lint cannot load export data
-    # for any dependency that imports the stdlib. With export_stdlib the archives
-    # arrive in go_sdk.libs under pkg/<goos>_<goarch>; the shortest lib dirname is
-    # that root (nested packages like net/http.a sit beneath it).
-    stdlib_libs = go_sdk.libs.to_list()
+    # The driver maps each stdlib package to its compiled .a for export data.
+    # Modern Go SDKs no longer ship a precompiled stdlib, so go_sdk.libs is empty;
+    # export_stdlib produces the archives separately and exposes them through the
+    # GoStdLib provider — either a pkg/ directory (pkg/<goos>_<goarch>/*.a) or, for
+    # SDKs that do ship them, the flat .a files go_sdk.libs also carries.
+    stdlib = ctx.attr._go_stdlib[GoStdLib]
+    stdlib_libs = stdlib.libs.to_list()
     stdlib_pkg_dir = ""
     for stdlib_lib in stdlib_libs:
-        if not stdlib_pkg_dir or len(stdlib_lib.dirname) < len(stdlib_pkg_dir):
+        if stdlib_lib.is_directory:
+            stdlib_pkg_dir = stdlib_lib.path + "/" + go_sdk.goos + "_" + go_sdk.goarch
+            break
+        elif not stdlib_pkg_dir or len(stdlib_lib.dirname) < len(stdlib_pkg_dir):
             stdlib_pkg_dir = stdlib_lib.dirname
 
     args = [
@@ -117,6 +121,7 @@ def _go_golangci_lint_aspect_impl(target, ctx):
                 pkg_info.export_files,
                 pkg_info.compiled_go_files,
                 pkg_info.stdlib_cache_dir,
+                stdlib.libs,
                 go_sdk.srcs,
                 go_sdk.libs,
                 go_sdk.tools,
@@ -142,6 +147,10 @@ go_golangci_lint_submission_aspect = aspect(
     toolchains = ["@rules_go//go:toolchain"],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
+        "_go_stdlib": attr.label(
+            default = Label("@rules_go//:stdlib"),
+            providers = [GoStdLib],
+        ),
         "_go_mod": attr.label(
             default = Label("//:go.mod"),
             allow_single_file = True,
