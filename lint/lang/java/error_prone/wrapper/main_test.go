@@ -422,6 +422,15 @@ func TestExecutionInvocation_LaunchFailureIsHardFailure(t *testing.T) {
 	assert.Equal(t, "error", inv.ToolExecutionNotifications[0].Level)
 }
 
+func TestExecutionInvocation_LaunchFailureKeepsCompileContext(t *testing.T) {
+	inv := executionInvocation(errors.New("exec format error"), []string{"Foo.java:1: error: package x does not exist"})
+
+	assert.False(t, inv.ExecutionSuccessful,
+		"a javac that could not launch is a hard failure even when compile errors were also detected")
+	require.Len(t, inv.ToolExecutionNotifications, 2)
+	assert.Contains(t, inv.ToolExecutionNotifications[1].Message.Text, "incomplete")
+}
+
 func TestToSARIF_Invocation(t *testing.T) {
 	ok := toSARIF(nil, sarif.Successful())
 	require.Len(t, ok.Runs[0].Invocations, 1)
