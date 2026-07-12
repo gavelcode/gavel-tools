@@ -178,8 +178,8 @@ func run(errorProneJar, dataflowJar, javacPath, outputPath, classpath string, fi
 	}
 
 	findings := parseDiagnostics(stderrStr)
-	successful, notifications := executionStatus(runErr, detectCompilerErrors(stderrStr))
-	return writeSARIF(outputPath, toSARIF(findings, successful, notifications))
+	invocation := executionInvocation(runErr, detectCompilerErrors(stderrStr))
+	return writeSARIF(outputPath, toSARIF(findings, invocation))
 }
 
 // detectCompilerErrors returns the genuine javac compilation errors in stderr —
@@ -199,22 +199,34 @@ func detectCompilerErrors(stderr string) []string {
 	return errorLines
 }
 
-// executionStatus decides whether the Error Prone run can be trusted as
-// complete. A javac that could not be launched, or any compilation error,
-// means the analysis is partial — reported via executionSuccessful=false so a
-// consumer never mistakes a half-run for a clean target.
-func executionStatus(runErr error, compileErrors []string) (bool, []string) {
-	var notes []string
+// executionInvocation classifies the Error Prone run into the SARIF invocation
+// the consumer needs. Two very different things look similar in stderr and must
+// not be conflated: javac that could not launch at all is a hard failure that
+// should fail the verdict; javac that launched but hit compilation errors (the
+// usual cause being a target whose annotation processors — Lombok, etc. — we
+// cannot replay) means Error Prone still ran and reported what it could, so the
+// analysis is degraded, not failed. Degraded runs stay executionSuccessful=true
+// and explain themselves as warnings, so a clean repo is never failed just for
+// using annotation processors.
+func executionInvocation(runErr error, compileErrors []string) sarif.Invocation {
 	var exitErr *exec.ExitError
 	if runErr != nil && !errors.As(runErr, &exitErr) {
-		notes = append(notes, fmt.Sprintf("Error Prone could not run javac: %v", runErr))
+		notes := []string{fmt.Sprintf("Error Prone could not run javac: %v", runErr)}
+		if len(compileErrors) > 0 {
+			notes = append(notes, compileErrorNote(compileErrors))
+		}
+		return sarif.Failed(notes...)
 	}
 	if len(compileErrors) > 0 {
-		notes = append(notes, fmt.Sprintf(
-			"%d javac compilation error(s) prevented complete Error Prone analysis; results are incomplete. First: %s",
-			len(compileErrors), compileErrors[0]))
+		return sarif.Degraded(compileErrorNote(compileErrors))
 	}
-	return len(notes) == 0, notes
+	return sarif.Successful()
+}
+
+func compileErrorNote(compileErrors []string) string {
+	return fmt.Sprintf(
+		"%d javac compilation error(s) prevented complete Error Prone analysis; results are incomplete. First: %s",
+		len(compileErrors), compileErrors[0])
 }
 
 func buildJavacArgs(processorpath, classpath, tmpDir, fileList string) []string {
@@ -287,7 +299,7 @@ func javacLevelToSARIF(level string) string {
 	}
 }
 
-func toSARIF(findings []finding, successful bool, notifications []string) sarifLog {
+func toSARIF(findings []finding, invocation sarif.Invocation) sarifLog {
 	rules := make(map[string]sarifRule)
 	results := make([]sarifResult, 0, len(findings))
 
@@ -307,11 +319,6 @@ func toSARIF(findings []finding, successful bool, notifications []string) sarifL
 				},
 			}},
 		})
-	}
-
-	invocation := sarif.Successful()
-	if !successful {
-		invocation = sarif.Failed(notifications...)
 	}
 
 	return sarifLog{

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gavelcode/gavel-tools/lint/sarif"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -177,7 +178,7 @@ func TestToSARIF(t *testing.T) {
 		{File: "src/Bar.java", Line: 5, Level: "error", RuleID: "MustBeClosedChecker", Message: "This resource must be closed"},
 	}
 
-	got := toSARIF(findings, true, nil)
+	got := toSARIF(findings, sarif.Successful())
 
 	assert.Equal(t, "2.1.0", got.Version)
 	require.Len(t, got.Runs, 1)
@@ -191,7 +192,7 @@ func TestToSARIF(t *testing.T) {
 }
 
 func TestToSARIFEmpty(t *testing.T) {
-	got := toSARIF(nil, true, nil)
+	got := toSARIF(nil, sarif.Successful())
 
 	require.Len(t, got.Runs, 1)
 	assert.Empty(t, got.Runs[0].Results)
@@ -396,34 +397,37 @@ func TestDetectCompilerErrors_OnlyErrorProneFindings(t *testing.T) {
 	assert.Empty(t, detectCompilerErrors(stderr))
 }
 
-func TestExecutionStatus_CleanRun(t *testing.T) {
-	ok, notes := executionStatus(nil, nil)
+func TestExecutionInvocation_CleanRun(t *testing.T) {
+	inv := executionInvocation(nil, nil)
 
-	assert.True(t, ok)
-	assert.Empty(t, notes)
+	assert.True(t, inv.ExecutionSuccessful)
+	assert.Empty(t, inv.ToolExecutionNotifications)
 }
 
-func TestExecutionStatus_CompileErrors(t *testing.T) {
-	ok, notes := executionStatus(nil, []string{"Foo.java:1: error: package x does not exist"})
+func TestExecutionInvocation_CompileErrorsAreDegradedNotFailed(t *testing.T) {
+	inv := executionInvocation(nil, []string{"Foo.java:1: error: package x does not exist"})
 
-	assert.False(t, ok)
-	require.Len(t, notes, 1)
-	assert.Contains(t, notes[0], "incomplete")
+	assert.True(t, inv.ExecutionSuccessful,
+		"Error Prone ran; a target that will not fully compile (annotation processors) is incomplete, not a tool failure that should gate the verdict")
+	require.Len(t, inv.ToolExecutionNotifications, 1)
+	assert.Equal(t, "warning", inv.ToolExecutionNotifications[0].Level)
+	assert.Contains(t, inv.ToolExecutionNotifications[0].Message.Text, "incomplete")
 }
 
-func TestExecutionStatus_LaunchFailure(t *testing.T) {
-	ok, notes := executionStatus(errors.New("exec format error"), nil)
+func TestExecutionInvocation_LaunchFailureIsHardFailure(t *testing.T) {
+	inv := executionInvocation(errors.New("exec format error"), nil)
 
-	assert.False(t, ok)
-	assert.NotEmpty(t, notes)
+	assert.False(t, inv.ExecutionSuccessful)
+	require.NotEmpty(t, inv.ToolExecutionNotifications)
+	assert.Equal(t, "error", inv.ToolExecutionNotifications[0].Level)
 }
 
 func TestToSARIF_Invocation(t *testing.T) {
-	ok := toSARIF(nil, true, nil)
+	ok := toSARIF(nil, sarif.Successful())
 	require.Len(t, ok.Runs[0].Invocations, 1)
 	assert.True(t, ok.Runs[0].Invocations[0].ExecutionSuccessful)
 
-	failed := toSARIF(nil, false, []string{"3 javac errors prevented analysis"})
+	failed := toSARIF(nil, sarif.Failed("3 javac errors prevented analysis"))
 	require.Len(t, failed.Runs[0].Invocations, 1)
 	assert.False(t, failed.Runs[0].Invocations[0].ExecutionSuccessful)
 	require.Len(t, failed.Runs[0].Invocations[0].ToolExecutionNotifications, 1)
