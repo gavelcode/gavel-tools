@@ -23,6 +23,10 @@ jobs:
     uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.4.2
     with:
       tag_name: ${{ inputs.tag_name || github.ref_name }}
+      # Read .bcr templates from the ref the workflow runs on: the tag on a
+      # tag push (future releases carry .bcr), or main on workflow_dispatch
+      # (so tags cut before .bcr existed can still be published).
+      templates_ref: ${{ github.ref_name }}
       registry_fork: gavelcode/bazel-central-registry
       attest: false
       download_default_release_artifacts: false
