@@ -1,0 +1,30 @@
+name: Publish to BCR
+
+# Mirrors each vX.Y.Z release to the Bazel Central Registry by opening a PR
+# from the registry fork. Runs alongside release.yml (which publishes to the
+# project's own registry). workflow_dispatch allows publishing an existing tag.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to publish (e.g. v0.3.8)"
+        required: true
+
+permissions:
+  id-token: write
+  attestations: write
+  contents: write
+
+jobs:
+  publish:
+    uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v0.2.2
+    with:
+      tag_name: ${{ inputs.tag_name || github.ref_name }}
+      registry_fork: gavelcode/bazel-central-registry
+      attest: false
+      download_default_release_artifacts: false
+    secrets:
+      publish_token: ${{ secrets.PUBLISH_TO_BCR_TOKEN }}
