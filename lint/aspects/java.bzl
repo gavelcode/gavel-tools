@@ -152,6 +152,10 @@ def _java_spotbugs_aspect_impl(target, ctx):
         return [_empty_output_groups(transitive)]
     if ctx.label.workspace_name:
         return [_empty_output_groups(transitive)]
+    if not _collect_java_srcs(ctx):
+        # Resources-only java targets produce a jar without classes and
+        # SpotBugs exits non-zero when handed nothing analyzable.
+        return [_empty_output_groups(transitive)]
 
     jars = _java_runtime_output_jars(target)
     if not jars:
