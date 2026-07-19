@@ -311,3 +311,43 @@ func TestRun_RulesetWriteError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write ruleset")
 }
+
+func TestResolveRuleset_PrefersProjectRuleset(t *testing.T) {
+	dir := t.TempDir()
+	project := filepath.Join(dir, projectRulesetName)
+	require.NoError(t, os.WriteFile(project, []byte("<ruleset/>"), 0o644))
+	t.Chdir(dir)
+
+	path, cleanup, err := resolveRuleset(t.TempDir())
+
+	require.NoError(t, err)
+	assert.Equal(t, projectRulesetName, path)
+	assert.False(t, cleanup)
+}
+
+func TestResolveRuleset_FallsBackToEmbedded(t *testing.T) {
+	t.Chdir(t.TempDir())
+	outDir := t.TempDir()
+
+	path, cleanup, err := resolveRuleset(outDir)
+
+	require.NoError(t, err)
+	assert.True(t, cleanup)
+	body, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(body), "category/java/design.xml")
+}
+
+func TestRun_UsesProjectRuleset(t *testing.T) {
+	pmd := writeFakeScript(t, 0)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, projectRulesetName), []byte("<ruleset/>"), 0o644))
+	t.Chdir(dir)
+	out := filepath.Join(t.TempDir(), "out.sarif")
+
+	err := run(pmd, out, []string{"Test.java"})
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(filepath.Join(dir, projectRulesetName))
+	assert.NoError(t, statErr, "the project ruleset must not be deleted after the run")
+}

@@ -18,6 +18,11 @@ const (
 	rulesetPermission = 0o644
 )
 
+// projectRulesetName is the conventional file consumers add to their
+// //:gavel_lint_config filegroup to replace the embedded default ruleset,
+// mirroring how .golangci.yml configures the Go linter.
+const projectRulesetName = "pmd-ruleset.xml"
+
 const pmdRuleset = `<?xml version="1.0"?>
 <ruleset name="gavel" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0">
   <rule ref="category/java/bestpractices.xml"/>
@@ -77,11 +82,13 @@ func run(pmdPath, outputPath string, files []string) error {
 	}
 	defer func() { _ = os.Remove(fileList) }()
 
-	rulesetPath, err := writeRuleset(filepath.Dir(outputPath))
+	rulesetPath, rulesetIsTemporary, err := resolveRuleset(filepath.Dir(outputPath))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(rulesetPath) }()
+	if rulesetIsTemporary {
+		defer func() { _ = os.Remove(rulesetPath) }()
+	}
 
 	arguments := []string{
 		"check",
@@ -119,6 +126,18 @@ func writeFileList(files []string) (_ string, err error) {
 		}
 	}
 	return listFile.Name(), nil
+}
+
+// resolveRuleset prefers the consumer's pmd-ruleset.xml (threaded into the
+// sandbox via //:gavel_lint_config) and only materializes the embedded default
+// when the project does not bring its own. The boolean tells the caller
+// whether the returned file is a temporary that must be cleaned up.
+func resolveRuleset(fallbackDir string) (string, bool, error) {
+	if _, err := os.Stat(projectRulesetName); err == nil {
+		return projectRulesetName, false, nil
+	}
+	path, err := writeRuleset(fallbackDir)
+	return path, true, err
 }
 
 func writeRuleset(dir string) (string, error) {

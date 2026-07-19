@@ -69,3 +69,28 @@ The consumer reads `@gavel_tools//lint:catalog.yaml` through Bazel runfiles at
 runtime; the `aspects_bzl` label in the file tells it where the aspects live under
 whatever name it binds gavel-tools. In gavel this replaced hardcoded per-language
 maps with a loader, so the menu is owned in exactly one place — here.
+
+## Tool config files — the `//:gavel_lint_config` convention
+
+Tools that accept a project-level config discover it by conventional filename.
+The consumer exposes those files through a root filegroup, which every lint
+aspect threads into its actions (cache-correct and sandbox-safe):
+
+```python
+filegroup(
+    name = "gavel_lint_config",
+    srcs = glob([".golangci.yml", "pmd-ruleset.xml", ".gavel/architecture.yml"], allow_empty = True),
+    visibility = ["//visibility:public"],
+)
+```
+
+| File | Tool | When absent |
+|------|------|-------------|
+| `.golangci.yml` | golangci-lint | the tool's own defaults |
+| `pmd-ruleset.xml` | PMD (Java) | the embedded gavel ruleset: every category enabled |
+| `.gavel/architecture.yml` | archtest | no architecture constraints |
+
+A project whose house style conflicts with PMD's defaults (say, javadoc-on-everything
+or one-assert-per-test) writes a standard [PMD ruleset](https://pmd.github.io/pmd/pmd_userdocs_making_rulesets.html)
+excluding those rules, drops it at the workspace root as `pmd-ruleset.xml`, and adds it
+to the filegroup — no fork or module override needed.
