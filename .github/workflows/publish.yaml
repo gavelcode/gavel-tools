@@ -19,7 +19,38 @@ permissions:
   contents: write
 
 jobs:
+  # BCR's presubmit rejects GitHub's auto-generated /archive/refs/tags/ URLs
+  # because their checksums are not guaranteed stable. Publishing our own
+  # archive as an immutable release asset makes the checksum stable and
+  # removes the need for the `@bazel-io skip_check unstable_url` escape hatch.
+  release-archive:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag_name || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the tagged module
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag_name || github.ref_name }}
+
+      - name: Build and upload the source archive
+        run: |
+          version="${TAG#v}"
+          asset="gavel-tools-${TAG}.tar.gz"
+          if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null \
+            | grep -qx "$asset"; then
+            echo "asset ${asset} already published; keeping existing bytes so the checksum stays stable"
+            exit 0
+          fi
+          git archive --format=tar.gz --prefix="gavel-tools-${version}/" -o "$asset" HEAD
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "$asset"
+
   publish:
+    needs: release-archive
     uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.4.2
     with:
       tag_name: ${{ inputs.tag_name || github.ref_name }}
