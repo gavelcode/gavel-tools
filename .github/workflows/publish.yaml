@@ -1,8 +1,7 @@
 name: Publish to BCR
 
-# Mirrors each vX.Y.Z release to the Bazel Central Registry by opening a PR
-# from the registry fork. Runs alongside release.yml (which publishes to the
-# project's own registry). workflow_dispatch allows publishing an existing tag.
+# Publishes each vX.Y.Z release to the Bazel Central Registry by opening a PR
+# from the registry fork. workflow_dispatch allows publishing an existing tag.
 on:
   push:
     tags:
