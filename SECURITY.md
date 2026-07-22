@@ -3,7 +3,7 @@
 ## Supported versions
 
 gavel-tools is **alpha**. Security fixes land on `main` and ship in the next
-version published to the [gavel registry](https://gavelcode.github.io/registry);
+version published to the [Bazel Central Registry](https://registry.bazel.build/modules/gavel_tools);
 depend on a version and update to pick up fixes.
 
 ## Reporting a vulnerability

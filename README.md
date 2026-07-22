@@ -25,19 +25,12 @@ consumer can read the results.
 
 ## Usage
 
-gavel-tools is published to the [gavel registry](https://gavelcode.github.io/registry).
-Point Bazel at it (alongside the Bazel Central Registry) and depend on it by
-version:
-
-```bash
-# .bazelrc
-common --registry=https://bcr.bazel.build
-common --registry=https://gavelcode.github.io/registry
-```
+gavel-tools is published to the [Bazel Central Registry](https://registry.bazel.build/modules/gavel_tools).
+Depend on it by version — no extra registry configuration needed:
 
 ```python
-# MODULE.bazel — the registry lists every published version; pin the latest
-bazel_dep(name = "gavel_tools", version = "X.Y.Z")
+# MODULE.bazel — pin the latest version listed in the registry
+bazel_dep(name = "gavel_tools", version = "0.3.10")
 ```
 
 Run a lint aspect over your targets — findings land as `*.sarif` under

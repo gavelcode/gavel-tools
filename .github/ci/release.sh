@@ -4,8 +4,8 @@
 #   bash .github/ci/release.sh 0.2.0
 #
 # Bumps the module version, pushes it, waits for CI to go green on that exact
-# commit, then tags. The tag triggers .github/workflows/release.yml, which
-# publishes the version to the Bazel registry (gavelcode/registry). The only
+# commit, then tags. The tag triggers .github/workflows/publish.yaml, which
+# publishes the version to the Bazel Central Registry. The only
 # irreversible public actions — pushing the commit and the tag — happen last,
 # after every check passes and you confirm.
 #
@@ -84,7 +84,7 @@ while :; do
 done
 
 echo
-info "release: ready to tag ${TAG} at ${sha} — this publishes ${VERSION} to the registry"
+info "release: ready to tag ${TAG} at ${sha} — this publishes ${VERSION} to the Bazel Central Registry"
 if [ "${RELEASE_YES:-}" != "1" ]; then
   printf "release: push %s and publish? [y/N] " "${TAG}"
   read -r reply
@@ -97,4 +97,4 @@ fi
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push -q origin "${TAG}"
 pass "release: pushed ${TAG}"
-info "release: watch the publish with  gh run watch -R ${REPO} --workflow release.yml"
+info "release: watch the publish with  gh run watch -R ${REPO} --workflow publish.yaml"
