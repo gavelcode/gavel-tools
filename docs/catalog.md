@@ -94,3 +94,23 @@ A project whose house style conflicts with PMD's defaults (say, javadoc-on-every
 or one-assert-per-test) writes a standard [PMD ruleset](https://pmd.github.io/pmd/pmd_userdocs_making_rulesets.html)
 excluding those rules, drops it at the workspace root as `pmd-ruleset.xml`, and adds it
 to the filegroup — no fork or module override needed.
+
+### How archtest resolves layers
+
+Layer patterns in `.gavel/architecture.yml` are matched against the package or
+directory path of the file under analysis and of each import.
+
+- **Most specific wins.** When patterns of several layers match the same path, the
+  one with the most literal (non-`**`, non-`...`) segments wins; equal specificity
+  goes to the lexically smallest layer name. The result never depends on map order.
+- **Java matches in package space.** Both the importing file's directory and each
+  import are reduced to the package path (`com/acme/users/domain`), so cross-module
+  imports in multi-module layouts (one `src/main/java` per module) are checked.
+  Write patterns as `com/acme/users/...` or `**/com/acme/users/...`. Legacy
+  patterns carrying a `<module>/src/main/java/` or `<module>/src/test/java/`
+  prefix are still accepted: the prefix is stripped before matching. Because
+  prefixes collapse, legacy patterns from different modules can now overlap and
+  are then resolved by the specificity rule above.
+- **Module-only Java patterns are rejected.** A pattern that is just a module
+  source root (e.g. `core/app/src/main/java/...`) selects no package, so the run
+  fails with an error naming the layer and pattern instead of passing silently.

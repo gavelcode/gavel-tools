@@ -419,49 +419,27 @@ func TestJavaImportToPackagePath(t *testing.T) {
 	}
 }
 
-func TestExtractSourcePrefix(t *testing.T) {
+func TestPackagePath(t *testing.T) {
 	tests := []struct {
 		name     string
-		source   string
+		path     string
 		expected string
 	}{
-		{"standard maven layout", "src/main/java/com/example/domain/Order.java", "src/main/java/"},
-		{"with leading path", "modules/core/src/main/java/com/example/domain/Order.java", "modules/core/src/main/java/"},
-		{"no java source root", "com/example/domain/Order.java", ""},
+		{"main root", "src/main/java/com/example/domain", "com/example/domain"},
+		{"module prefix", "modules/core/src/main/java/com/example/domain", "com/example/domain"},
+		{"test root", "core/src/test/java/com/example/domain", "com/example/domain"},
+		{"pattern with wildcard", "core/src/main/java/**/domain/...", "**/domain/..."},
+		{"default package", "core/src/main/java", ""},
+		{"no source root", "com/example/domain", "com/example/domain"},
+		{"wildcard pattern without root", "**/com/example/...", "**/com/example/..."},
+		{"lookalike directory is not a root", "xsrc/main/java/com/example", "xsrc/main/java/com/example"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractSourcePrefix(tt.source)
-			assert.Equal(t, tt.expected, got)
+			assert.Equal(t, tt.expected, packagePath(tt.path))
 		})
 	}
-}
-
-func TestResolveImportPaths(t *testing.T) {
-	imports := []archtest.Import{
-		{Path: "com/example/infrastructure", Line: 3},
-		{Path: "com/example/domain", Line: 4},
-	}
-	sourceFile := "src/main/java/com/example/application/Service.java"
-
-	resolved := resolveImportPaths(imports, sourceFile)
-
-	expected := []archtest.Import{
-		{Path: "src/main/java/com/example/infrastructure", Line: 3},
-		{Path: "src/main/java/com/example/domain", Line: 4},
-	}
-	assert.Equal(t, expected, resolved)
-}
-
-func TestResolveImportPaths_NoSourceRoot(t *testing.T) {
-	imports := []archtest.Import{{Path: "com/example/domain", Line: 3}}
-	sourceFile := "com/example/application/Service.java"
-
-	resolved := resolveImportPaths(imports, sourceFile)
-
-	expected := []archtest.Import{{Path: "com/example/domain", Line: 3}}
-	assert.Equal(t, expected, resolved)
 }
 
 func TestIsJavaDeclaration(t *testing.T) {
@@ -507,4 +485,143 @@ func writeTemp(t *testing.T, name, content string) string {
 	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	return path
+}
+
+func writeJava(t *testing.T, root, relPath, content string) string {
+	t.Helper()
+	full := filepath.Join(root, relPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+	require.NoError(t, os.WriteFile(full, []byte(content), 0o644))
+	return relPath
+}
+
+func TestEvaluateFile_MultiModuleCrossModuleImportIsReported(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	source := writeJava(t, root, "core/users/domain/src/main/java/com/acme/users/domain/Order.java",
+		"package com.acme.users.domain;\n\nimport com.acme.platform.app.Service;\n\npublic class Order {}\n")
+	writeJava(t, root, "core/platform/app/src/main/java/com/acme/platform/app/Service.java",
+		"package com.acme.platform.app;\n\npublic class Service {}\n")
+	cfg := archtest.Config{
+		Layers: map[string][]string{
+			"users-domain": {"com/acme/users/domain/..."},
+			"platform-app": {"com/acme/platform/app/..."},
+		},
+		Rules: []archtest.Rule{{Name: "users-domain-no-platform-app", Source: "users-domain", Deny: []string{"platform-app"}}},
+	}
+
+	violations, err := evaluateFile(source, cfg)
+
+	require.NoError(t, err)
+	require.Len(t, violations, 1)
+	assert.Equal(t, "users-domain-no-platform-app", violations[0].RuleName)
+}
+
+func TestEvaluateFile_MultiModuleWildcardPatternsReportCrossModuleImport(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	source := writeJava(t, root, "core/users/domain/src/main/java/com/acme/users/domain/Order.java",
+		"package com.acme.users.domain;\n\nimport com.acme.platform.app.Service;\n")
+	cfg := archtest.Config{
+		Layers: map[string][]string{
+			"users-domain": {"**/com/acme/users/domain/..."},
+			"platform-app": {"**/com/acme/platform/app/..."},
+		},
+		Rules: []archtest.Rule{{Name: "r", Source: "users-domain", Deny: []string{"platform-app"}}},
+	}
+
+	violations, err := evaluateFile(source, cfg)
+
+	require.NoError(t, err)
+	assert.Len(t, violations, 1)
+}
+
+func legacyRutivaConfig() archtest.Config {
+	return archtest.Config{
+		Layers: map[string][]string{
+			"domain": {
+				"core/src/main/java/com/rutiva/club/domain/...",
+				"com/rutiva/club/domain/...",
+			},
+			"infra": {
+				"core/src/main/java/com/rutiva/club/infrastructure/...",
+				"com/rutiva/club/infrastructure/...",
+			},
+			"server": {
+				"apps/server/src/main/java/com/rutiva/...",
+				"com/rutiva/...",
+			},
+		},
+		Rules: []archtest.Rule{{Name: "domain-no-infra", Source: "domain", Deny: []string{"infra"}}},
+	}
+}
+
+func TestEvaluateFile_LegacyPathPrefixedPatternsStillDenyImports(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	source := writeJava(t, root, "core/src/main/java/com/rutiva/club/domain/model/Club.java",
+		"package com.rutiva.club.domain.model;\n\nimport com.rutiva.club.infrastructure.Repo;\n")
+
+	violations, err := evaluateFile(source, legacyRutivaConfig())
+
+	require.NoError(t, err)
+	require.Len(t, violations, 1)
+	assert.Equal(t, "domain-no-infra", violations[0].RuleName)
+}
+
+func TestEvaluateFile_LegacyPathPrefixedPatternsStillAllowImports(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	domain := writeJava(t, root, "core/src/main/java/com/rutiva/club/domain/model/Club.java",
+		"package com.rutiva.club.domain.model;\n\nimport com.rutiva.club.domain.shared.Id;\nimport java.util.List;\n")
+	server := writeJava(t, root, "apps/server/src/main/java/com/rutiva/server/Main.java",
+		"package com.rutiva.server;\n\nimport com.rutiva.club.domain.model.Club;\nimport com.rutiva.club.infrastructure.Repo;\n")
+
+	domainViolations, err := evaluateFile(domain, legacyRutivaConfig())
+	require.NoError(t, err)
+	serverViolations, err := evaluateFile(server, legacyRutivaConfig())
+	require.NoError(t, err)
+
+	assert.Empty(t, domainViolations)
+	assert.Empty(t, serverViolations)
+}
+
+func TestRun_ModuleOnlyPatternFailsLoudly(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	source := writeJava(t, root, "core/platform/application/src/main/java/com/acme/platform/application/Svc.java",
+		"package com.acme.platform.application;\n\nimport com.acme.users.domain.Order;\n")
+	config := "layers:\n  platform_application:\n    - core/platform/application/src/main/java/...\n  users_domain:\n    - com/acme/users/domain/...\nrules:\n  - name: r\n    source: platform_application\n    deny: [users_domain]\n"
+	configPath := filepath.Join(root, "architecture.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o644))
+
+	err := run(configPath, filepath.Join(root, "out.sarif"), []string{source})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `layer "platform_application"`)
+	assert.Contains(t, err.Error(), "core/platform/application/src/main/java/...")
+	assert.Contains(t, err.Error(), "selects a module, not a package")
+}
+
+func TestValidateLayers(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		wantErr bool
+	}{
+		{"module only recursive", "core/app/src/main/java/...", true},
+		{"module only wildcard", "core/app/src/test/java/**/...", true},
+		{"module only bare root", "core/app/src/main/java", true},
+		{"legacy package under root", "core/app/src/main/java/com/acme/...", false},
+		{"package space", "com/acme/app/...", false},
+		{"wildcard package", "**/com/acme/app/...", false},
+		{"no root, wildcard only", "**/...", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLayers(map[string][]string{"layer": {tt.pattern}})
+			assert.Equal(t, tt.wantErr, err != nil)
+		})
+	}
 }

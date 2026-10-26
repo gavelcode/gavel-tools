@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/gavelcode/gavel-tools/lint/archtest"
 )
@@ -150,5 +151,40 @@ func TestMatchLayer(t *testing.T) {
 			got := archtest.MatchLayer(tt.path, tt.layers)
 			assert.Equal(t, tt.want, got)
 		})
+	}
+}
+
+func TestMatchLayer_OverlappingPatternsPickMostSpecificDeterministically(t *testing.T) {
+	layers := map[string][]string{
+		"users":        {"**/com/acme/users/..."},
+		"users-domain": {"**/com/acme/users/domain/..."},
+	}
+
+	for i := 0; i < 200; i++ {
+		require.Equal(t, "users-domain", archtest.MatchLayer("core/com/acme/users/domain/model", layers), "call %d", i)
+		require.Equal(t, "users", archtest.MatchLayer("core/com/acme/users/infra", layers), "call %d", i)
+	}
+}
+
+func TestMatchLayer_EqualSpecificityPicksLexicallySmallestLayer(t *testing.T) {
+	layers := map[string][]string{
+		"zeta":  {"com/acme/..."},
+		"alpha": {"com/acme/..."},
+		"mid":   {"com/acme/..."},
+	}
+
+	for i := 0; i < 200; i++ {
+		require.Equal(t, "alpha", archtest.MatchLayer("com/acme/x", layers), "call %d", i)
+	}
+}
+
+func TestMatchLayer_LongerLiteralPatternBeatsWildcardPrefix(t *testing.T) {
+	layers := map[string][]string{
+		"wide":   {"**/domain/..."},
+		"narrow": {"com/acme/users/domain/..."},
+	}
+
+	for i := 0; i < 200; i++ {
+		require.Equal(t, "narrow", archtest.MatchLayer("com/acme/users/domain/model", layers), "call %d", i)
 	}
 }

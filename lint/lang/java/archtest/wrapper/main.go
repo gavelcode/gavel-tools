@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/gavelcode/gavel-tools/lint/archtest"
 	"github.com/gavelcode/gavel-tools/lint/sarif"
 )
 
+var javaSourceRoots = []string{"src/main/java/", "src/test/java/"}
+
 const (
-	javaSourceRoot = "src/main/java/"
+	pathSeparator  = "/"
 	missingArgCode = 2
 	dirPermission  = 0o755
 )
@@ -56,6 +59,9 @@ func run(configPath, outputPath string, files []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if err := validateLayers(config.Layers); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
 
 	var allViolations []archtest.Violation
 	var failures []string
@@ -79,8 +85,8 @@ func run(configPath, outputPath string, files []string) error {
 }
 
 func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violation, error) {
-	dirPath := filepath.Dir(sourceFile)
-	layer := archtest.MatchLayer(dirPath, config.Layers)
+	layers := packageSpaceLayers(config.Layers)
+	layer := archtest.MatchLayer(packagePath(filepath.Dir(sourceFile)), layers)
 	if layer == "" {
 		return nil, nil
 	}
@@ -90,31 +96,86 @@ func evaluateFile(sourceFile string, config archtest.Config) ([]archtest.Violati
 		return nil, err
 	}
 
-	resolved := resolveImportPaths(imports, sourceFile)
-
-	return archtest.Evaluate(sourceFile, layer, resolved, config.Layers, config.Rules), nil
+	return archtest.Evaluate(sourceFile, layer, imports, layers, config.Rules), nil
 }
 
-func resolveImportPaths(imports []archtest.Import, sourceFile string) []archtest.Import {
-	prefix := extractSourcePrefix(sourceFile)
-
-	resolved := make([]archtest.Import, 0, len(imports))
-	for _, imp := range imports {
-		resolved = append(resolved, archtest.Import{
-			Path: prefix + imp.Path,
-			Line: imp.Line,
-		})
+// validateLayers rejects patterns that name a module source root but no
+// package. Imports carry only packages, so such a layer could never match and
+// its rules would pass silently.
+func validateLayers(layers map[string][]string) error {
+	names := make([]string, 0, len(layers))
+	for name := range layers {
+		names = append(names, name)
 	}
-	return resolved
+	slices.Sort(names)
+
+	for _, name := range names {
+		for _, pattern := range layers[name] {
+			if selectsModuleOnly(pattern) {
+				return fmt.Errorf("layer %q: pattern %q selects a module, not a package; Java archtest resolves layers by package, use a package pattern such as \"com/acme/app/...\" or \"**/com/acme/app/...\"", name, pattern)
+			}
+		}
+	}
+	return nil
 }
 
-func extractSourcePrefix(sourceFile string) string {
-	normalized := filepath.ToSlash(sourceFile)
-	idx := strings.Index(normalized, javaSourceRoot)
-	if idx < 0 {
-		return ""
+// selectsModuleOnly reports whether pattern has a Java source root followed by
+// nothing but wildcards.
+func selectsModuleOnly(pattern string) bool {
+	stripped := packagePath(pattern)
+	if stripped == strings.TrimSuffix(filepath.ToSlash(pattern), pathSeparator) {
+		return false
 	}
-	return normalized[:idx+len(javaSourceRoot)]
+	for _, segment := range strings.Split(stripped, pathSeparator) {
+		if segment != "" && segment != "..." && segment != "**" {
+			return false
+		}
+	}
+	return true
+}
+
+// packageSpaceLayers rewrites layer patterns into package space so they match
+// a Java package path independently of the module that holds the sources.
+func packageSpaceLayers(layers map[string][]string) map[string][]string {
+	result := make(map[string][]string, len(layers))
+	for name, patterns := range layers {
+		normalized := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			normalized = append(normalized, packagePath(pattern))
+		}
+		result[name] = normalized
+	}
+	return result
+}
+
+// packagePath strips everything up to and including the first Java source root
+// (src/main/java/ or src/test/java/), leaving the package path. A path without
+// a source root is returned unchanged, so package-space and `**/` patterns
+// pass through untouched.
+func packagePath(path string) string {
+	normalized := filepath.ToSlash(path) + pathSeparator
+	rootEnd := -1
+	for _, root := range javaSourceRoots {
+		if end := sourceRootEnd(normalized, root); end >= 0 && (rootEnd < 0 || end < rootEnd) {
+			rootEnd = end
+		}
+	}
+	if rootEnd < 0 {
+		return strings.TrimSuffix(normalized, pathSeparator)
+	}
+	return strings.TrimSuffix(normalized[rootEnd:], pathSeparator)
+}
+
+// sourceRootEnd returns the index just past root in path when root starts at a
+// path boundary, or -1.
+func sourceRootEnd(path, root string) int {
+	if strings.HasPrefix(path, root) {
+		return len(root)
+	}
+	if idx := strings.Index(path, pathSeparator+root); idx >= 0 {
+		return idx + 1 + len(root)
+	}
+	return -1
 }
 
 func javaImportToPackagePath(importStmt string) string {
