@@ -15,29 +15,29 @@ const (
 // broken by the lexically smallest layer name, so the result never depends on
 // map iteration order.
 func MatchLayer(path string, layers map[string][]string) string {
-	best, bestSpecificity := "", -1
-	for name, patterns := range layers {
+	bestLayer, bestSpecificity := "", -1
+	for layerName, patterns := range layers {
 		specificity := bestMatchSpecificity(path, patterns)
 		if specificity < 0 {
 			continue
 		}
-		if specificity > bestSpecificity || (specificity == bestSpecificity && name < best) {
-			best, bestSpecificity = name, specificity
+		if specificity > bestSpecificity || (specificity == bestSpecificity && layerName < bestLayer) {
+			bestLayer, bestSpecificity = layerName, specificity
 		}
 	}
-	return best
+	return bestLayer
 }
 
 // bestMatchSpecificity returns the highest specificity among the patterns that
 // match path, or -1 when none matches.
 func bestMatchSpecificity(path string, patterns []string) int {
-	best := -1
+	highestSpecificity := -1
 	for _, pattern := range patterns {
 		if matchPattern(path, pattern) {
-			best = max(best, specificity(pattern))
+			highestSpecificity = max(highestSpecificity, specificity(pattern))
 		}
 	}
-	return best
+	return highestSpecificity
 }
 
 // specificity counts the literal segments of a pattern.
