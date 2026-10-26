@@ -1,6 +1,6 @@
 module github.com/gavelcode/gavel-tools
 
-go 1.25.11
+go 1.25.13
 
 require (
 	github.com/stretchr/testify v1.11.1
