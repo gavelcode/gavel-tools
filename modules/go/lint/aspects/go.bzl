@@ -6,20 +6,22 @@ that rules_go's `go_pkg_info_aspect` emits, so no host `go` and no network are
 needed (see docs/tier-model.md). archtest is a pure source-parsing wrapper.
 """
 
+load(
+    "@gavel_tools//lint/aspects:common.bzl",
+    "GAVEL_LINT_TOOLCHAIN_TYPE",
+    "gavel_lint_binary",
+    _collect_dep_submissions = "collect_dep_submissions",
+    _empty_output_groups = "empty_output_groups",
+    _lint_config_files = "lint_config_files",
+    _safe_output_name = "safe_output_name",
+    _submission_output_groups = "submission_output_groups",
+)
 load("@rules_go//go:def.bzl", "GoLibrary")
 load("@rules_go//go/private:providers.bzl", "GoStdLib")
 load(
     "@rules_go//go/tools/gopackagesdriver:aspect.bzl",
     "GoPkgInfo",
     "go_pkg_info_aspect",
-)
-load(
-    ":common.bzl",
-    _collect_dep_submissions = "collect_dep_submissions",
-    _empty_output_groups = "empty_output_groups",
-    _lint_config_files = "lint_config_files",
-    _safe_output_name = "safe_output_name",
-    _submission_output_groups = "submission_output_groups",
 )
 
 def _collect_srcs(ctx):
@@ -87,8 +89,6 @@ def _go_golangci_lint_aspect_impl(target, ctx):
     args = [
         "--golangci-lint",
         ctx.file._golangci_lint.path,
-        "--driver",
-        ctx.executable._packages_driver.path,
         "--manifest",
         manifest.path,
         "--go",
@@ -106,7 +106,7 @@ def _go_golangci_lint_aspect_impl(target, ctx):
     stdlib_json = [pkg_info.stdlib_json_file] if pkg_info.stdlib_json_file else []
 
     ctx.actions.run(
-        executable = ctx.executable._golangci_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = [
                 manifest,
@@ -129,10 +129,10 @@ def _go_golangci_lint_aspect_impl(target, ctx):
             ],
         ),
         outputs = [output],
-        arguments = args,
+        arguments = ["golangci"] + args,
         mnemonic = "GavelGoGolangCILintSARIF",
         progress_message = "Generating golangci-lint submission for %s" % ctx.label,
-        tools = [ctx.file._golangci_lint, ctx.executable._packages_driver],
+        tools = [ctx.file._golangci_lint],
     )
 
     return [_submission_output_groups(output, transitive)]
@@ -144,7 +144,7 @@ go_golangci_lint_submission_aspect = aspect(
         "embed",
     ],
     requires = [go_pkg_info_aspect],
-    toolchains = ["@rules_go//go:toolchain"],
+    toolchains = ["@rules_go//go:toolchain", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_go_stdlib": attr.label(
@@ -152,26 +152,16 @@ go_golangci_lint_submission_aspect = aspect(
             providers = [GoStdLib],
         ),
         "_go_mod": attr.label(
-            default = Label("//:go.mod"),
+            default = Label("@gavel_tools//:go.mod"),
             allow_single_file = True,
         ),
         "_go_sum": attr.label(
-            default = Label("//:go.sum"),
+            default = Label("@gavel_tools//:go.sum"),
             allow_single_file = True,
-        ),
-        "_golangci_sarif": attr.label(
-            default = Label("//lint/lang/go/golangci_lint/wrapper"),
-            executable = True,
-            cfg = "exec",
         ),
         "_golangci_lint": attr.label(
             default = Label("@golangci_lint//:golangci-lint"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_packages_driver": attr.label(
-            default = Label("//lint/lang/go/golangci_lint/packagesdriver"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -208,10 +198,11 @@ def _go_archtest_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
     ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
+        executable = gavel_lint_binary(ctx),
         inputs = srcs + _lint_config_files(ctx),
         outputs = [output],
         arguments = [
+            "go-archtest",
             "--config",
             ".gavel/architecture.yml",
             "--module-prefix",
@@ -227,16 +218,12 @@ def _go_archtest_aspect_impl(target, ctx):
 
 go_archtest_submission_aspect = aspect(
     implementation = _go_archtest_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
         "embed",
     ],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/go/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
 )

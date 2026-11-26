@@ -6,15 +6,17 @@ rules_python interpreter (declared as an input) instead of a PATH python3;
 archtest is a pure source-parsing wrapper.
 """
 
-load("@rules_python//python:defs.bzl", "PyInfo")
 load(
-    ":common.bzl",
+    "@gavel_tools//lint/aspects:common.bzl",
+    "GAVEL_LINT_TOOLCHAIN_TYPE",
+    "gavel_lint_binary",
     _collect_dep_submissions = "collect_dep_submissions",
     _empty_output_groups = "empty_output_groups",
     _lint_config_files = "lint_config_files",
     _safe_output_name = "safe_output_name",
     _submission_output_groups = "submission_output_groups",
 )
+load("@rules_python//python:defs.bzl", "PyInfo")
 
 def _collect_python_srcs(ctx):
     srcs = []
@@ -49,13 +51,14 @@ def _python_pycompile_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".pycompile.sarif")
     ctx.actions.run(
-        executable = ctx.executable._python_pycompile_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = srcs + _lint_config_files(ctx) + interpreter_inputs,
             transitive = interpreter_transitive,
         ),
         outputs = [output],
         arguments = [
+            "pycompile",
             "--python",
             python_path,
             "--out",
@@ -72,14 +75,9 @@ python_pycompile_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@rules_python//python:toolchain_type"],
+    toolchains = ["@rules_python//python:toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_python_pycompile_sarif": attr.label(
-            default = Label("//lint/lang/python/pycompile/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
 )
 
@@ -96,10 +94,11 @@ def _python_ruff_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".ruff.sarif")
     ctx.actions.run(
-        executable = ctx.executable._ruff_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = srcs + _lint_config_files(ctx),
         outputs = [output],
         arguments = [
+            "ruff",
             "--ruff",
             ctx.file._ruff.path,
             "--out",
@@ -114,6 +113,7 @@ def _python_ruff_aspect_impl(target, ctx):
 
 python_ruff_submission_aspect = aspect(
     implementation = _python_ruff_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
     ],
@@ -122,11 +122,6 @@ python_ruff_submission_aspect = aspect(
         "_ruff": attr.label(
             default = Label("@ruff//:ruff"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_ruff_sarif": attr.label(
-            default = Label("//lint/lang/python/ruff/wrapper"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -161,13 +156,14 @@ def _python_bandit_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".bandit.sarif")
     ctx.actions.run(
-        executable = ctx.executable._bandit_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = srcs + site_packages + _lint_config_files(ctx) + interpreter_inputs,
             transitive = interpreter_transitive,
         ),
         outputs = [output],
         arguments = [
+            "bandit",
             "--python",
             python_path,
             "--site-packages",
@@ -186,16 +182,11 @@ python_bandit_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@rules_python//python:toolchain_type"],
+    toolchains = ["@rules_python//python:toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_bandit_packages": attr.label(
             default = Label("@bandit//:site_packages"),
-        ),
-        "_bandit_sarif": attr.label(
-            default = Label("//lint/lang/python/bandit/wrapper"),
-            executable = True,
-            cfg = "exec",
         ),
     },
 )
@@ -213,10 +204,11 @@ def _python_archtest_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
     ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
+        executable = gavel_lint_binary(ctx),
         inputs = srcs + _lint_config_files(ctx),
         outputs = [output],
         arguments = [
+            "python-archtest",
             "--config",
             ".gavel/architecture.yml",
             "--out",
@@ -230,15 +222,11 @@ def _python_archtest_aspect_impl(target, ctx):
 
 python_archtest_submission_aspect = aspect(
     implementation = _python_archtest_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
     ],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/python/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
 )

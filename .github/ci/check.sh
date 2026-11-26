@@ -109,7 +109,7 @@ gate_selflint() {
   # export data; without it golangci-lint cannot type-check and only emits noise.
   if ! bazel build //... \
     --@rules_go//go/config:export_stdlib=True \
-    --aspects=//lint/aspects:defs.bzl%go_golangci_lint_submission_aspect \
+    --aspects=@gavel_tools_go//lint/aspects:defs.bzl%go_golangci_lint_submission_aspect \
     --output_groups=gavel_submissions >/dev/null 2>&1; then
     fail "self-lint: aspect build failed"
     record "self-lint"

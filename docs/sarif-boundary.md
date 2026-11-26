@@ -12,7 +12,7 @@ agnostic to which analyzer produced it.
 
 | Aspect label | Output group | File |
 |--------------|--------------|------|
-| `@gavel_tools//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect` | `gavel_submissions` | `*.sarif` |
+| `@<module>//lint/aspects:defs.bzl%<lang>_<tool>_submission_aspect` (`<module>` per [`catalog.yaml`](../lint/catalog.yaml)) | `gavel_submissions` | `*.sarif` |
 
 Each aspect produces SARIF with a proper `ruleId`, severity and location —
 **natively** where the tool ships a SARIF emitter that resolves in the sandbox

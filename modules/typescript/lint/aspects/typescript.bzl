@@ -10,7 +10,9 @@ sandbox (see docs/tier-model.md). archtest is a pure source-parsing wrapper.
 
 load("@aspect_rules_js//js:providers.bzl", "JsInfo")
 load(
-    ":common.bzl",
+    "@gavel_tools//lint/aspects:common.bzl",
+    "GAVEL_LINT_TOOLCHAIN_TYPE",
+    "gavel_lint_binary",
     _collect_dep_submissions = "collect_dep_submissions",
     _empty_output_groups = "empty_output_groups",
     _lint_config_files = "lint_config_files",
@@ -61,13 +63,13 @@ def _typescript_eslint_aspect_impl(target, ctx):
 
     config_inputs = [config] if config else []
     ctx.actions.run(
-        executable = ctx.executable._eslint_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = ts_srcs + config_inputs + _lint_config_files(ctx),
             transitive = [js.npm_sources, js.transitive_sources],
         ),
         outputs = [output],
-        arguments = args,
+        arguments = ["eslint"] + args,
         env = {"BAZEL_BINDIR": ctx.bin_dir.path},
         mnemonic = "GavelTypeScriptESLintSARIF",
         progress_message = "Generating ESLint submission for %s" % ctx.label,
@@ -78,6 +80,7 @@ def _typescript_eslint_aspect_impl(target, ctx):
 
 typescript_eslint_submission_aspect = aspect(
     implementation = _typescript_eslint_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
     ],
@@ -85,11 +88,6 @@ typescript_eslint_submission_aspect = aspect(
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_eslint": attr.label(
             default = Label("//lint/lang/typescript/eslint"),
-            executable = True,
-            cfg = "exec",
-        ),
-        "_eslint_sarif": attr.label(
-            default = Label("//lint/lang/typescript/eslint/wrapper"),
             executable = True,
             cfg = "exec",
         ),
@@ -107,10 +105,11 @@ def _typescript_archtest_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
     ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
+        executable = gavel_lint_binary(ctx),
         inputs = srcs + _lint_config_files(ctx),
         outputs = [output],
         arguments = [
+            "typescript-archtest",
             "--config",
             ".gavel/architecture.yml",
             "--out",
@@ -124,15 +123,11 @@ def _typescript_archtest_aspect_impl(target, ctx):
 
 typescript_archtest_submission_aspect = aspect(
     implementation = _typescript_archtest_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
     ],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/typescript/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
 )

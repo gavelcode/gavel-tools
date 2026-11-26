@@ -1,1 +1,9 @@
-exports_files(["defs.bzl"])
+# Loading defs.bzl here evaluates the aspect definitions at package-load time, so
+# `bazel build //lint/aspects:defs.bzl` (the BCR presubmit) fails if one is broken.
+load(":defs.bzl", "rust_archtest_submission_aspect")
+
+exports_files([
+    "common.bzl",
+    "defs.bzl",
+    "rust_clippy.bzl",
+])

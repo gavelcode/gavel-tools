@@ -6,15 +6,17 @@ toolchain onto each action (see the per-aspect notes) instead of relying on a
 host java/JAVA_HOME.
 """
 
-load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 load(
-    ":common.bzl",
+    "@gavel_tools//lint/aspects:common.bzl",
+    "GAVEL_LINT_TOOLCHAIN_TYPE",
+    "gavel_lint_binary",
     _collect_dep_submissions = "collect_dep_submissions",
     _empty_output_groups = "empty_output_groups",
     _lint_config_files = "lint_config_files",
     _safe_output_name = "safe_output_name",
     _submission_output_groups = "submission_output_groups",
 )
+load("@rules_java//java/common:java_info.bzl", "JavaInfo")
 
 def _collect_java_srcs(ctx):
     srcs = []
@@ -49,13 +51,14 @@ def _java_pmd_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".pmd.sarif")
     ctx.actions.run(
-        executable = ctx.executable._pmd_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = srcs + _lint_config_files(ctx),
             transitive = [java_runtime.files],
         ),
         outputs = [output],
         arguments = [
+            "pmd",
             "--pmd",
             ctx.file._pmd.path,
             "--out",
@@ -74,17 +77,12 @@ java_pmd_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type"],
+    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_pmd": attr.label(
             default = Label("@pmd//:bin/pmd"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_pmd_sarif": attr.label(
-            default = Label("//lint/lang/java/pmd/wrapper"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -105,13 +103,14 @@ def _java_cpd_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".cpd.sarif")
     ctx.actions.run(
-        executable = ctx.executable._cpd_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = srcs + _lint_config_files(ctx),
             transitive = [java_runtime.files],
         ),
         outputs = [output],
         arguments = [
+            "cpd",
             "--pmd",
             ctx.file._pmd.path,
             "--out",
@@ -130,17 +129,12 @@ java_cpd_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type"],
+    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_pmd": attr.label(
             default = Label("@pmd//:bin/pmd"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_cpd_sarif": attr.label(
-            default = Label("//lint/lang/java/cpd/wrapper"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -165,13 +159,14 @@ def _java_spotbugs_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".spotbugs.sarif")
     ctx.actions.run(
-        executable = ctx.executable._spotbugs_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = jars + _lint_config_files(ctx),
             transitive = [java_runtime.files],
         ),
         outputs = [output],
         arguments = [
+            "spotbugs",
             "--spotbugs",
             ctx.file._spotbugs.path,
             "--out",
@@ -190,17 +185,12 @@ java_spotbugs_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type"],
+    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_spotbugs": attr.label(
             default = Label("@spotbugs//:bin/spotbugs"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_spotbugs_sarif": attr.label(
-            default = Label("//lint/lang/java/spotbugs/wrapper"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -248,13 +238,13 @@ def _java_error_prone_aspect_impl(target, ctx):
     args.extend([src.path for src in srcs])
 
     ctx.actions.run(
-        executable = ctx.executable._error_prone_sarif,
+        executable = gavel_lint_binary(ctx),
         inputs = depset(
             direct = srcs + classpath_jars + [ctx.file._error_prone_jar, ctx.file._dataflow_jar] + _lint_config_files(ctx),
             transitive = [java_runtime.files],
         ),
         outputs = [output],
-        arguments = args,
+        arguments = ["error-prone"] + args,
         mnemonic = "GavelJavaErrorProneSARIF",
         progress_message = "Generating Error Prone submission for %s" % ctx.label,
         env = _jvm_env(java_runtime),
@@ -267,7 +257,7 @@ java_error_prone_submission_aspect = aspect(
     attr_aspects = [
         "deps",
     ],
-    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type"],
+    toolchains = ["@bazel_tools//tools/jdk:runtime_toolchain_type", GAVEL_LINT_TOOLCHAIN_TYPE],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
         "_error_prone_jar": attr.label(
@@ -278,11 +268,6 @@ java_error_prone_submission_aspect = aspect(
         "_dataflow_jar": attr.label(
             default = Label("@error_prone//:dataflow_errorprone.jar"),
             allow_single_file = True,
-            cfg = "exec",
-        ),
-        "_error_prone_sarif": attr.label(
-            default = Label("//lint/lang/java/error_prone/wrapper"),
-            executable = True,
             cfg = "exec",
         ),
     },
@@ -301,10 +286,11 @@ def _java_archtest_aspect_impl(target, ctx):
 
     output = ctx.actions.declare_file(_safe_output_name(ctx.label) + ".archtest.sarif")
     ctx.actions.run(
-        executable = ctx.executable._archtest_wrapper,
+        executable = gavel_lint_binary(ctx),
         inputs = srcs + _lint_config_files(ctx),
         outputs = [output],
         arguments = [
+            "java-archtest",
             "--config",
             ".gavel/architecture.yml",
             "--out",
@@ -318,15 +304,11 @@ def _java_archtest_aspect_impl(target, ctx):
 
 java_archtest_submission_aspect = aspect(
     implementation = _java_archtest_aspect_impl,
+    toolchains = [GAVEL_LINT_TOOLCHAIN_TYPE],
     attr_aspects = [
         "deps",
     ],
     attrs = {
         "_lint_config": attr.label(default = Label("@@//:gavel_lint_config")),
-        "_archtest_wrapper": attr.label(
-            default = Label("//lint/lang/java/archtest/wrapper"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
 )

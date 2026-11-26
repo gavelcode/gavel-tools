@@ -7,13 +7,13 @@ rules_rust's upstream Clippy aspect. Consumers on rules_rs use gavel_tools_rust_
 
 module(
     name = "gavel_tools_rust",
-    version = "0.3.10",
+    version = "0.3.11",
     compatibility_level = 1,
 )
 
 # Overrides only take effect when this is the root module (dev / CI here); for
 # consumers they are ignored and the registry version of gavel_tools is used.
-bazel_dep(name = "gavel_tools", version = "0.3.10")
+bazel_dep(name = "gavel_tools", version = "0.3.11")
 local_path_override(
     module_name = "gavel_tools",
     path = "../..",

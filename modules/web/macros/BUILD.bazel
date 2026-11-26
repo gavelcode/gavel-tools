@@ -1,0 +1,5 @@
+# Loading web.bzl evaluates the macro's loads, so `bazel build //macros:all` (the
+# BCR presubmit) fails if esbuild / rules_js / bazel_lib do not resolve.
+load(":web.bzl", "web_project")
+
+exports_files(["web.bzl"])

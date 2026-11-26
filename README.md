@@ -29,8 +29,10 @@ gavel-tools is published to the [Bazel Central Registry](https://registry.bazel.
 Depend on it by version — no extra registry configuration needed:
 
 ```python
-# MODULE.bazel — pin the latest version listed in the registry
+# MODULE.bazel — the core plus one module per language you lint. gavel-tools
+# never adds a ruleset or linter for a language you do not use.
 bazel_dep(name = "gavel_tools", version = "0.3.10")
+bazel_dep(name = "gavel_tools_go", version = "0.3.10")  # or _java, _python, _typescript, _rust, _rust_rs
 ```
 
 Run a lint aspect over your targets — findings land as `*.sarif` under
@@ -38,7 +40,7 @@ Run a lint aspect over your targets — findings land as `*.sarif` under
 
 ```bash
 bazel build //... \
-  --aspects=@gavel_tools//lint/aspects:defs.bzl%go_golangci_lint_submission_aspect \
+  --aspects=@gavel_tools_go//lint/aspects:defs.bzl%go_golangci_lint_submission_aspect \
   --output_groups=gavel_submissions
 ```
 
@@ -46,18 +48,18 @@ Or scaffold a frontend's entire build graph (esbuild + tailwind + tsc + eslint)
 from one declaration:
 
 ```python
-load("@gavel_tools//macros:web.bzl", "web_project")
+load("@gavel_tools_web//macros:web.bzl", "web_project")
 ```
 
 ## Languages
 
-| Language   | Aspects |
-|------------|---------|
-| Go         | golangci-lint, archtest |
-| Java       | PMD, CPD, SpotBugs, Error Prone, archtest |
-| Python     | Ruff, Bandit, pycompile, archtest |
-| TypeScript | ESLint, archtest |
-| Rust       | Clippy, archtest |
+| Language   | Module | Aspects |
+|------------|--------|---------|
+| Go         | `gavel_tools_go` | golangci-lint, archtest |
+| Java       | `gavel_tools_java` | PMD, CPD, SpotBugs, Error Prone, archtest |
+| Python     | `gavel_tools_python` | Ruff, Bandit, pycompile, archtest |
+| TypeScript | `gavel_tools_typescript` | ESLint, archtest |
+| Rust       | `gavel_tools_rust` (rules_rust) or `gavel_tools_rust_rs` (rules_rs); archtest is in `gavel_tools` | Clippy, archtest |
 
 > [!WARNING]
 > Two aspects run hermetic through gavel-owned glue coupled to build-rule

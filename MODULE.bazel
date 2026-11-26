@@ -9,16 +9,13 @@ module(
 # toolchain bits used to build them stay out of consumers' module graph.
 IS_RELEASE = False
 
+# The core imposes no language ruleset on consumers: each language lives in its
+# own module (modules/<lang>) that depends on this one plus only its own ruleset
+# and linter binaries. rules_go is here only to build gavel-lint from source and to
+# run this repo's Go tests, so a release (IS_RELEASE) leaves it out of the graph.
 bazel_dep(name = "rules_go", version = "0.60.0", dev_dependency = IS_RELEASE)
-bazel_dep(name = "rules_java", version = "9.1.0")
-bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "gazelle", version = "0.50.0", dev_dependency = IS_RELEASE)
-bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(name = "aspect_rules_js", version = "3.0.3")
-bazel_dep(name = "aspect_rules_ts", version = "3.8.8")
-bazel_dep(name = "aspect_rules_esbuild", version = "0.25.1")
-bazel_dep(name = "rules_nodejs", version = "6.7.4")
-bazel_dep(name = "rules_rust", version = "0.70.0")
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk", dev_dependency = IS_RELEASE)
 go_sdk.download(version = "1.25.13")
@@ -39,56 +36,48 @@ use_repo(gavel_lint, "gavel_lint_toolchains")
 
 register_toolchains("@gavel_lint_toolchains//:all")
 
-node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node", dev_dependency = True)
-node.toolchain(node_version = "22.16.0")
+# The language modules are dev dependencies only so catalog_test can read their
+# aspects and MODULE.bazel files (the module graph is cyclic by design: each
+# depends back on us). Consumers add the ones for the languages they lint.
+bazel_dep(name = "gavel_tools_go", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_java", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_python", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_typescript", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_web", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_rust", version = "0.3.11", dev_dependency = True)
+bazel_dep(name = "gavel_tools_rust_rs", version = "0.3.11", dev_dependency = True)
 
-npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
-npm.npm_translate_lock(
-    name = "gavel_eslint",
-    pnpm_lock = "//lint/lang/typescript/eslint:pnpm-lock.yaml",
-)
-use_repo(npm, "gavel_eslint")
-
-# Linter tool binaries the aspects depend on. Owned here (not by consumers) so
-# the aspect labels (@golangci_lint, @pmd, …) resolve within this module.
-golangci_lint_binary = use_repo_rule("//lint/lang/go/golangci_lint:repositories.bzl", "golangci_lint_binary")
-
-golangci_lint_binary(
-    name = "golangci_lint",
-    version = "2.11.4",
+local_path_override(
+    module_name = "gavel_tools_go",
+    path = "modules/go",
 )
 
-pmd_binary = use_repo_rule("//lint/lang/java/pmd:repositories.bzl", "pmd_binary")
-
-pmd_binary(
-    name = "pmd",
-    version = "7.24.0",
+local_path_override(
+    module_name = "gavel_tools_java",
+    path = "modules/java",
 )
 
-spotbugs_binary = use_repo_rule("//lint/lang/java/spotbugs:repositories.bzl", "spotbugs_binary")
-
-spotbugs_binary(
-    name = "spotbugs",
-    version = "4.9.8",
+local_path_override(
+    module_name = "gavel_tools_python",
+    path = "modules/python",
 )
 
-error_prone_binary = use_repo_rule("//lint/lang/java/error_prone:repositories.bzl", "error_prone_binary")
-
-error_prone_binary(
-    name = "error_prone",
-    version = "2.49.0",
+local_path_override(
+    module_name = "gavel_tools_typescript",
+    path = "modules/typescript",
 )
 
-ruff_binary = use_repo_rule("//lint/lang/python/ruff:repositories.bzl", "ruff_binary")
-
-ruff_binary(
-    name = "ruff",
-    version = "0.15.12",
+local_path_override(
+    module_name = "gavel_tools_web",
+    path = "modules/web",
 )
 
-bandit_binary = use_repo_rule("//lint/lang/python/bandit:repositories.bzl", "bandit_binary")
+local_path_override(
+    module_name = "gavel_tools_rust",
+    path = "modules/rust",
+)
 
-bandit_binary(
-    name = "bandit",
-    version = "1.9.4",
+local_path_override(
+    module_name = "gavel_tools_rust_rs",
+    path = "modules/rust_rs",
 )

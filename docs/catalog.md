@@ -41,10 +41,19 @@ languages:
   # java, python, rust …
 ```
 
+A tool may also carry `variants`: an alternative aspect for consumers that build
+with a different ruleset (today: Clippy for rules_rs, shipped by the separate
+`gavel_tools_rust_rs` module so gavel-tools never imposes a ruleset). Every tool
+names the Bazel `module` that publishes its aspect — one module per language —
+so a consumer only depends on the languages it lints. The header
+of `catalog.yaml` documents the fields.
+
 > [!NOTE]
 > The catalog can't drift from the aspects it names: `catalog_test`
 > (`//lint:lint_test`) fails if any listed `aspect` is missing from
-> `//lint/aspects:defs.bzl`, or if an aspect ships without a catalog entry.
+> its module's `defs.bzl` (the tool's `module`, default `gavel_tools`), or if an
+> aspect ships without a catalog entry, or if a `binary` repo is not declared by
+> the tool's own module. Variants are checked the same way.
 
 ## Layer 2 — the per-project selection
 
