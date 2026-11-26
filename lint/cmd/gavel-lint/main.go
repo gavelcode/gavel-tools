@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	validatebridge "github.com/gavelcode/gavel-tools/lint/cmd/validatebridge"
 	goarchtest "github.com/gavelcode/gavel-tools/lint/lang/go/archtest/wrapper"
 	packagesdriver "github.com/gavelcode/gavel-tools/lint/lang/go/golangci_lint/packagesdriver"
 	golangci "github.com/gavelcode/gavel-tools/lint/lang/go/golangci_lint/wrapper"
@@ -56,6 +57,7 @@ var tools = map[string]func([]string) int{
 	"rust-archtest":       rustarchtest.Main,
 	"spotbugs":            spotbugs.Main,
 	"typescript-archtest": tsarchtest.Main,
+	"validate-bridge":     validatebridge.Main,
 }
 
 func main() { os.Exit(dispatch(os.Args, os.Stderr)) }

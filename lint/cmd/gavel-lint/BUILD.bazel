@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/gavelcode/gavel-tools/lint/cmd/gavel-lint",
     visibility = ["//visibility:private"],
     deps = [
+        "//lint/cmd/validatebridge",
         "//lint/lang/go/archtest/wrapper",
         "//lint/lang/go/golangci_lint/packagesdriver",
         "//lint/lang/go/golangci_lint/wrapper",

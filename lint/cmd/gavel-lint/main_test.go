@@ -68,6 +68,7 @@ func TestTools_AreAllRegistered(t *testing.T) {
 		"bandit", "clippy-convert", "cpd", "eslint", "error-prone", "go-archtest",
 		"golangci", "java-archtest", "packagesdriver", "pmd", "pycompile",
 		"python-archtest", "ruff", "rust-archtest", "spotbugs", "typescript-archtest",
+		"validate-bridge",
 	}
 	got := make([]string, 0, len(tools))
 	for name, fn := range tools {

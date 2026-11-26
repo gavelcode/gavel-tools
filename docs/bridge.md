@@ -74,6 +74,9 @@ the `sarif_suffix` declared in `gavel.yaml`.
   content); fingerprints in the SARIF are optional.
 <!-- END CONTRACT -->
 
-To check your output the same way gavel-tools does, use `ValidateBridge` from
+To check your output the same way gavel-tools does, run
+`bazel run @gavel_tools//lint/cmd/gavel-lint -- validate-bridge FILE.sarif...`
+(prints each violation as `file: message`; exit 0 valid, 1 violations, 2 usage or
+I/O error), or call `ValidateBridge` from
 `github.com/gavelcode/gavel-tools/lint/sarif` (see
 [`examples/bridge/bridge_test.go`](../examples/bridge/bridge_test.go)).
