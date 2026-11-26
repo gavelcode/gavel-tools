@@ -30,14 +30,14 @@ func run(files []string, stdout, stderr io.Writer) int {
 		return exitUsageError
 	}
 	exitCode := 0
-	for _, path := range files {
-		data, err := os.ReadFile(resolve(path))
+	for _, sarifPath := range files {
+		data, err := os.ReadFile(resolve(sarifPath))
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "validate-bridge: %v\n", err)
 			return exitUsageError
 		}
 		for _, problem := range sarif.ValidateBridge(data) {
-			_, _ = fmt.Fprintf(stdout, "%s: %s\n", path, problem)
+			_, _ = fmt.Fprintf(stdout, "%s: %s\n", sarifPath, problem)
 			exitCode = exitViolations
 		}
 	}
