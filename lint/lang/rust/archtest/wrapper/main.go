@@ -24,7 +24,7 @@ func Main(arguments []string) int {
 	flags := flag.NewFlagSet("rust-archtest", flag.ExitOnError)
 	config := flags.String("config", "", "Path to architecture.yml")
 	outputPath := flags.String("out", "", "SARIF output path")
-	pkg := flags.String("package", "", "Bazel package of the crate being checked")
+	packageName := flags.String("package", "", "Bazel package of the crate being checked")
 	crates := crateFlag{}
 	flags.Var(crates, "crate", "Direct dependency as crate_name=package (repeatable)")
 	_ = flags.Parse(arguments)
@@ -44,14 +44,14 @@ func Main(arguments []string) int {
 		return exitCodeUsageError
 	}
 
-	if err := run(*config, *outputPath, files, resolver{pkg: *pkg, crates: crates}); err != nil {
+	if err := run(*config, *outputPath, files, resolver{pkg: *packageName, crates: crates}); err != nil {
 		fmt.Fprintf(os.Stderr, "run rust archtest: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func run(configPath, outputPath string, files []string, res resolver) error {
+func run(configPath, outputPath string, files []string, rustResolver resolver) error {
 	if err := os.MkdirAll(filepath.Dir(outputPath), dirPermission); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
@@ -64,7 +64,7 @@ func run(configPath, outputPath string, files []string, res resolver) error {
 	var allViolations []archtest.Violation
 	var failures []string
 	for _, sourceFile := range files {
-		violations, err := evaluateFile(sourceFile, config, res)
+		violations, err := evaluateFile(sourceFile, config, rustResolver)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("could not analyze %s: %v", sourceFile, err))
 			continue
@@ -82,14 +82,14 @@ func run(configPath, outputPath string, files []string, res resolver) error {
 	return nil
 }
 
-func evaluateFile(sourceFile string, config archtest.Config, res resolver) ([]archtest.Violation, error) {
+func evaluateFile(sourceFile string, config archtest.Config, rustResolver resolver) ([]archtest.Violation, error) {
 	pkgDir := filepath.Dir(sourceFile)
 	layer := archtest.MatchLayer(pkgDir, config.Layers)
 	if layer == "" {
 		return nil, nil
 	}
 
-	imports, err := parseRustImports(sourceFile, res)
+	imports, err := parseRustImports(sourceFile, rustResolver)
 	if err != nil {
 		return nil, err
 	}
@@ -100,19 +100,19 @@ func evaluateFile(sourceFile string, config archtest.Config, res resolver) ([]ar
 // dedupeImports drops repeated (path, line) pairs, which a brace group such as
 // `model::{A, B}` produces, so each is reported once.
 func dedupeImports(imports []archtest.Import) []archtest.Import {
-	seen := make(map[archtest.Import]bool, len(imports))
+	alreadySeen := make(map[archtest.Import]bool, len(imports))
 	unique := make([]archtest.Import, 0, len(imports))
 	for _, imp := range imports {
-		if seen[imp] {
+		if alreadySeen[imp] {
 			continue
 		}
-		seen[imp] = true
+		alreadySeen[imp] = true
 		unique = append(unique, imp)
 	}
 	return unique
 }
 
-func parseRustImports(filePath string, res resolver) (imports []archtest.Import, retErr error) {
+func parseRustImports(filePath string, rustResolver resolver) (imports []archtest.Import, retErr error) {
 	sourceFile, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", filePath, err)
@@ -123,67 +123,76 @@ func parseRustImports(filePath string, res resolver) (imports []archtest.Import,
 		}
 	}()
 
-	fileDir := filepath.Dir(filePath)
+	collector := useCollector{fileDir: filepath.Dir(filePath), resolver: rustResolver}
 	scanner := bufio.NewScanner(sourceFile)
 	lineNum := 0
 	inBlockComment := false
-
-	// A use statement may span lines (rustfmt wraps long brace groups), so
-	// code is buffered from the `use` keyword until the terminating `;`.
-	var pending strings.Builder
-	pendingLine := 0
-
 	for scanner.Scan() {
 		lineNum++
 		trimmed, skip := cleanRustCommentLine(strings.TrimSpace(scanner.Text()), &inBlockComment)
 		if skip {
 			continue
 		}
-		trimmed = strings.TrimSpace(stripRustLineComment(trimmed))
-
-		for trimmed != "" {
-			if pending.Len() == 0 {
-				rest, ok := cutUseKeyword(trimmed)
-				if !ok {
-					break
-				}
-				pendingLine = lineNum
-				trimmed = rest
-			}
-			end := strings.Index(trimmed, ";")
-			if end < 0 {
-				pending.WriteString(trimmed)
-				pending.WriteString(" ")
-				break
-			}
-			pending.WriteString(trimmed[:end])
-			imports = append(imports, parseUseStatement(pending.String(), fileDir, pendingLine, res)...)
-			pending.Reset()
-			trimmed = strings.TrimSpace(trimmed[end+1:])
-		}
+		collector.consume(strings.TrimSpace(stripRustLineComment(trimmed)), lineNum)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan %s: %w", filePath, err)
 	}
-	return imports, nil
+	return collector.imports, nil
+}
+
+// useCollector accumulates the imports of one file. A use statement may span
+// lines (rustfmt wraps long brace groups), so code is buffered from the `use`
+// keyword until the terminating `;`.
+type useCollector struct {
+	fileDir     string
+	resolver    resolver
+	pending     strings.Builder
+	pendingLine int
+	imports     []archtest.Import
+}
+
+// consume feeds one comment-free line of code, which may hold the start, the
+// end, or several whole use statements.
+func (c *useCollector) consume(code string, lineNum int) {
+	for code != "" {
+		if c.pending.Len() == 0 {
+			rest, ok := cutUseKeyword(code)
+			if !ok {
+				return
+			}
+			c.pendingLine = lineNum
+			code = rest
+		}
+		semicolon := strings.Index(code, ";")
+		if semicolon < 0 {
+			c.pending.WriteString(code)
+			c.pending.WriteString(" ")
+			return
+		}
+		c.pending.WriteString(code[:semicolon])
+		c.imports = append(c.imports, parseUseStatement(c.pending.String(), c.fileDir, c.pendingLine, c.resolver)...)
+		c.pending.Reset()
+		code = strings.TrimSpace(code[semicolon+1:])
+	}
 }
 
 // cutUseKeyword returns the text after a leading `use`, `pub use`,
 // `pub(crate) use`, `pub(super) use` or `pub(in path) use`.
-func cutUseKeyword(code string) (string, bool) {
-	if vis, ok := strings.CutPrefix(code, "pub"); ok {
-		vis = strings.TrimLeft(vis, " \t")
-		if strings.HasPrefix(vis, "(") {
-			closing := strings.Index(vis, ")")
+func cutUseKeyword(source string) (string, bool) {
+	if visibility, ok := strings.CutPrefix(source, "pub"); ok {
+		visibility = strings.TrimLeft(visibility, " \t")
+		if strings.HasPrefix(visibility, "(") {
+			closing := strings.Index(visibility, ")")
 			if closing < 0 {
 				return "", false
 			}
-			vis = strings.TrimLeft(vis[closing+1:], " \t")
+			visibility = strings.TrimLeft(visibility[closing+1:], " \t")
 		}
-		code = vis
+		source = visibility
 	}
-	rest, ok := strings.CutPrefix(code, "use")
+	rest, ok := strings.CutPrefix(source, "use")
 	if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t' && rest[0] != ':' && rest[0] != '{') {
 		return "", false
 	}
@@ -228,13 +237,13 @@ func cleanRustCommentLine(trimmed string, inBlockComment *bool) (string, bool) {
 
 // parseUseStatement turns the text of one use statement (without `use` and
 // `;`) into one import per leaf path of its brace tree.
-func parseUseStatement(statement, fileDir string, lineNum int, res resolver) []archtest.Import {
+func parseUseStatement(statement, fileDir string, lineNum int, rustResolver resolver) []archtest.Import {
 	var imports []archtest.Import
 	for _, leaf := range expandUseTree("", statement) {
 		if isStdlibUse(leaf) {
 			continue
 		}
-		filePath := res.resolve(leaf, fileDir)
+		filePath := rustResolver.resolve(leaf, fileDir)
 		if filePath == "" {
 			continue
 		}
@@ -250,29 +259,10 @@ func parseUseStatement(statement, fileDir string, lineNum int, res resolver) []a
 func expandUseTree(prefix, tree string) []string {
 	var leaves []string
 	sawSelf := false
-	for _, item := range splitTopLevel(tree) {
-		item = stripLeadingColons(strings.TrimSpace(item))
-		if item == "" {
-			continue
-		}
-		if open := strings.Index(item, "{"); open >= 0 {
-			head := strings.TrimSuffix(strings.TrimSpace(item[:open]), "::")
-			inner := strings.TrimSuffix(strings.TrimSpace(item[open+1:]), "}")
-			leaves = append(leaves, expandUseTree(joinPath(prefix, head), inner)...)
-			continue
-		}
-		if idx := strings.Index(item, " as "); idx >= 0 {
-			item = strings.TrimSpace(item[:idx])
-		}
-		item = strings.TrimSuffix(item, "::*")
-		switch item {
-		case "self":
-			sawSelf = true
-		case "*":
-			leaves = append(leaves, prefix)
-		default:
-			leaves = append(leaves, joinPath(prefix, item))
-		}
+	for _, treeItem := range splitTopLevel(tree) {
+		itemLeaves, isSelf := expandUseItem(prefix, stripLeadingColons(strings.TrimSpace(treeItem)))
+		sawSelf = sawSelf || isSelf
+		leaves = append(leaves, itemLeaves...)
 	}
 	if sawSelf && len(leaves) == 0 && prefix != "" {
 		leaves = append(leaves, prefix)
@@ -280,21 +270,46 @@ func expandUseTree(prefix, tree string) []string {
 	return leaves
 }
 
-func joinPath(prefix, tail string) string {
-	if prefix == "" {
-		return tail
+// expandUseItem expands one comma-separated element of a use tree. It reports
+// isSelf for a bare `self`, which the caller resolves against its siblings.
+func expandUseItem(prefix, treeItem string) (leaves []string, isSelf bool) {
+	if treeItem == "" {
+		return nil, false
 	}
-	if tail == "" {
+	if open := strings.Index(treeItem, "{"); open >= 0 {
+		group := strings.TrimSuffix(strings.TrimSpace(treeItem[:open]), "::")
+		inner := strings.TrimSuffix(strings.TrimSpace(treeItem[open+1:]), "}")
+		return expandUseTree(joinPath(prefix, group), inner), false
+	}
+	if idx := strings.Index(treeItem, " as "); idx >= 0 {
+		treeItem = strings.TrimSpace(treeItem[:idx])
+	}
+	treeItem = strings.TrimSuffix(treeItem, "::*")
+	switch treeItem {
+	case "self":
+		return nil, true
+	case "*":
+		return []string{prefix}, false
+	default:
+		return []string{joinPath(prefix, treeItem)}, false
+	}
+}
+
+func joinPath(prefix, suffix string) string {
+	if prefix == "" {
+		return suffix
+	}
+	if suffix == "" {
 		return prefix
 	}
-	return prefix + "::" + tail
+	return prefix + "::" + suffix
 }
 
 // splitTopLevel splits on commas that are not inside braces.
-func splitTopLevel(text string) []string {
+func splitTopLevel(useText string) []string {
 	var parts []string
 	depth, start := 0, 0
-	for i, char := range text {
+	for offset, char := range useText {
 		switch char {
 		case '{':
 			depth++
@@ -302,45 +317,51 @@ func splitTopLevel(text string) []string {
 			depth--
 		case ',':
 			if depth == 0 {
-				parts = append(parts, text[start:i])
-				start = i + 1
+				parts = append(parts, useText[start:offset])
+				start = offset + 1
 			}
 		}
 	}
-	return append(parts, text[start:])
+	return append(parts, useText[start:])
 }
 
 // resolve maps a use path to a workspace-relative path, or "" when it cannot
 // be placed (third-party crates, or crate:: with no known package).
 func (r resolver) resolve(statement, fileDir string) string {
 	statement = strings.Join(strings.Fields(stripLeadingColons(strings.TrimSpace(statement))), "")
-	head, tail, _ := strings.Cut(statement, "::")
+	firstSegment, modulePath, _ := strings.Cut(statement, "::")
 
-	switch head {
+	switch firstSegment {
 	case "crate":
-		return joinSlash(r.pkg, "src", moduleDir(tail))
+		return joinSlash(r.pkg, "src", moduleDir(modulePath))
 	case "self":
-		return joinSlash(fileDir, moduleDir(tail))
+		return joinSlash(fileDir, moduleDir(modulePath))
 	case "super":
-		dir := filepath.Dir(fileDir)
-		for {
-			next, ok := strings.CutPrefix(tail, "super::")
-			if tail == "super" {
-				next, ok = "", true
-			}
-			if !ok {
-				break
-			}
-			dir = filepath.Dir(dir)
-			tail = next
-		}
-		return joinSlash(dir, moduleDir(tail))
+		return resolveSuper(fileDir, modulePath)
 	}
 
-	if pkg, ok := r.crates[head]; ok {
-		return joinSlash(pkg, "src", moduleDir(tail))
+	if crateDir, ok := r.crates[firstSegment]; ok {
+		return joinSlash(crateDir, "src", moduleDir(modulePath))
 	}
 	return ""
+}
+
+// resolveSuper walks one directory up for the leading `super` and again for
+// each further `super::` in modulePath.
+func resolveSuper(fileDir, modulePath string) string {
+	currentDir := filepath.Dir(fileDir)
+	for {
+		remaining, ok := strings.CutPrefix(modulePath, "super::")
+		if modulePath == "super" {
+			remaining, ok = "", true
+		}
+		if !ok {
+			break
+		}
+		currentDir = filepath.Dir(currentDir)
+		modulePath = remaining
+	}
+	return joinSlash(currentDir, moduleDir(modulePath))
 }
 
 func moduleDir(modPath string) string {
