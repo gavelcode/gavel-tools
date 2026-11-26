@@ -8,6 +8,7 @@ rules_rust's upstream Clippy aspect. Consumers on rules_rs use gavel_tools_rust_
 module(
     name = "gavel_tools_rust",
     version = "0.4.0",
+    bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
 

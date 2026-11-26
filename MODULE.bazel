@@ -1,6 +1,7 @@
 module(
     name = "gavel_tools",
     version = "0.4.0",
+    bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
 

@@ -262,6 +262,47 @@ func TestModules_AllShareOneVersionAndPinEachOtherToIt(t *testing.T) {
 	assert.Len(t, versions, 1, "every module and every gavel_tools* bazel_dep must carry the same version, got %v", versions)
 }
 
+// gavel-tools is verified on Bazel 9 only. Declaring it in module() turns a
+// Bazel 7/8 consumer's obscure loading error into a clear compatibility one, and
+// the BCR presubmits must not claim versions the modules refuse.
+func TestModules_DeclareBazel9AsTheOnlySupportedBazel(t *testing.T) {
+	files := map[string]string{"gavel_tools_web": "../../gavel_tools_web+*/MODULE.bazel"}
+	for module, pattern := range moduleFiles {
+		files[module] = pattern
+	}
+	compat := regexp.MustCompile(`(?s)module\((.*?)\n\)`)
+	want := `bazel_compatibility = [">=9.0.0"],`
+	for module, pattern := range files {
+		path := "../MODULE.bazel"
+		if module != coreModule {
+			path = globOne(t, pattern)
+		}
+		text, err := os.ReadFile(path)
+		require.NoError(t, err)
+		m := compat.FindStringSubmatch(string(text))
+		require.NotNil(t, m, "no module() call in %s", path)
+		assert.Contains(t, m[1], want, "%s must declare bazel_compatibility in module()", module)
+	}
+}
+
+func TestBCRPresubmits_TestBazel9Only(t *testing.T) {
+	paths := []string{"../.bcr/presubmit.yml"}
+	for _, lang := range []string{"go", "java", "python", "rust", "rust_rs", "typescript", "web"} {
+		paths = append(paths, "../.bcr/modules/"+lang+"/presubmit.yml")
+	}
+	for _, path := range paths {
+		text, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var presubmit struct {
+			Matrix struct {
+				Bazel []string `yaml:"bazel"`
+			} `yaml:"matrix"`
+		}
+		require.NoError(t, yaml.Unmarshal(text, &presubmit), path)
+		assert.Equal(t, []string{"9.x"}, presubmit.Matrix.Bazel, "%s must test Bazel 9 only", path)
+	}
+}
+
 func contains(list []string, s string) bool {
 	for _, item := range list {
 		if item == s {

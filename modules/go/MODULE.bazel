@@ -7,6 +7,7 @@ this module's golangci-lint binary: no Go SDK is registered here.
 module(
     name = "gavel_tools_go",
     version = "0.4.0",
+    bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
 

@@ -10,6 +10,14 @@ go_test(
     srcs = ["catalog_test.go"],
     data = [
         "catalog.yaml",
+        "//:.bcr/modules/go/presubmit.yml",
+        "//:.bcr/modules/java/presubmit.yml",
+        "//:.bcr/modules/python/presubmit.yml",
+        "//:.bcr/modules/rust/presubmit.yml",
+        "//:.bcr/modules/rust_rs/presubmit.yml",
+        "//:.bcr/modules/typescript/presubmit.yml",
+        "//:.bcr/modules/web/presubmit.yml",
+        "//:.bcr/presubmit.yml",
         "//:MODULE.bazel",
         "//lint/aspects:defs.bzl",
         "@gavel_tools_go//:MODULE.bazel",  # keep
