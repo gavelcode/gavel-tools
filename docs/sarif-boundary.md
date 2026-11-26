@@ -24,11 +24,11 @@ JSON the same way.
 
 ## What the platform's parser requires
 
-Gavel's SARIF parser needs, per result: a non-empty **`ruleId`** (it rejects
-results without one), a **location** (`artifactLocation.uri` + `region.startLine`),
-a **message**, and a **level** (else it defaults to warning). It computes its own
-stable fingerprint from `tool:ruleId:file:lineContent`, so it does not depend on
-the tool supplying fingerprints — but it **does** depend on `ruleId` being present.
+The per-result contract (non-empty `ruleId`, location, message, level, failed-run
+reporting) is specified once in [bridge](bridge.md#sarif-contract) and applies to
+gavel-tools' own aspects and to project-written bridges alike. gavel computes its
+own stable fingerprint, so it does not depend on tool fingerprints — but it
+**does** depend on `ruleId` being present.
 
 That non-empty-`ruleId` requirement is why gavel-tools wraps each linter itself
 rather than delegating to
@@ -36,3 +36,6 @@ rather than delegating to
 reviewdog-based SARIF leaves `ruleId` empty and gets rejected. For a tool
 gavel-tools does not wrap, rules_lint stays a valid breadth option to wire on the
 side.
+
+For a tool gavel-tools does not wrap, write a [bridge](bridge.md) instead: an aspect
+returning the same output group through a stable API.

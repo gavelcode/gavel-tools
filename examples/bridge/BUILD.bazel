@@ -1,0 +1,44 @@
+load("@rules_go//go:def.bzl", "go_test")
+load(":todo.bzl", "todo_library", "todo_passthrough", "todo_report")
+
+todo_library(
+    name = "hit",
+    srcs = ["hit.txt"],
+)
+
+todo_library(
+    name = "clean",
+    srcs = ["clean.txt"],
+)
+
+# Not analysed by the aspect: its dependency's submission must still propagate.
+todo_passthrough(
+    name = "passthrough",
+    deps = [":hit"],
+)
+
+todo_library(
+    name = "wrapper",
+    srcs = ["wrapper.txt"],
+    deps = [
+        ":clean",
+        ":passthrough",
+    ],
+)
+
+todo_report(
+    name = "report",
+    deps = [":wrapper"],
+)
+
+go_test(
+    name = "bridge_test",
+    srcs = ["bridge_test.go"],
+    args = ["$(rootpaths :report)"],
+    data = [":report"],
+    deps = [
+        "//lint/sarif",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

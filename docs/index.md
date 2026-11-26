@@ -23,6 +23,7 @@ renamed** — never when a page's prose is edited.
 - [The catalog — two-layer tool config](catalog.md)
 - [web_project macro](web-project.md)
 - [The SARIF boundary](sarif-boundary.md)
+- [Bridges — bring your own linter](bridge.md)
 
 ## How-to — procedures
 

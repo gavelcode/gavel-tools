@@ -1,6 +1,9 @@
 load("@rules_go//go:def.bzl", "go_test")
 
-exports_files(["catalog.yaml"])
+exports_files([
+    "bridge.bzl",
+    "catalog.yaml",
+])
 
 go_test(
     name = "lint_test",
