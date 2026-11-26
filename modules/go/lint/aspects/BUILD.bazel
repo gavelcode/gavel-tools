@@ -3,3 +3,6 @@
 load(":defs.bzl", "go_archtest_submission_aspect", "go_golangci_lint_submission_aspect")
 
 exports_files(["defs.bzl"])
+
+# Read by //lint/catalogtest, which checks what this package loads.
+exports_files(["BUILD.bazel"])

@@ -42,7 +42,7 @@ type variant struct {
 
 func loadCatalog(t *testing.T) catalogFile {
 	t.Helper()
-	data, err := os.ReadFile("catalog.yaml")
+	data, err := os.ReadFile("../catalog.yaml")
 	require.NoError(t, err)
 	var catalog catalogFile
 	require.NoError(t, yaml.Unmarshal(data, &catalog))
@@ -58,25 +58,25 @@ const coreModule = "gavel_tools"
 // declared in the root MODULE.bazel (the `+` keeps gavel_tools_rust from also
 // matching gavel_tools_rust_rs).
 var moduleDefs = map[string]string{
-	coreModule:               "aspects/defs.bzl",
-	"gavel_tools_go":         "../../gavel_tools_go+*/lint/aspects/defs.bzl",
-	"gavel_tools_java":       "../../gavel_tools_java+*/lint/aspects/defs.bzl",
-	"gavel_tools_python":     "../../gavel_tools_python+*/lint/aspects/defs.bzl",
-	"gavel_tools_typescript": "../../gavel_tools_typescript+*/lint/aspects/defs.bzl",
-	"gavel_tools_rust":       "../../gavel_tools_rust+*/lint/aspects/defs.bzl",
-	"gavel_tools_rust_rs":    "../../gavel_tools_rust_rs+*/lint/aspects/defs.bzl",
+	coreModule:               "../aspects/defs.bzl",
+	"gavel_tools_go":         "../../../gavel_tools_go+*/lint/aspects/defs.bzl",
+	"gavel_tools_java":       "../../../gavel_tools_java+*/lint/aspects/defs.bzl",
+	"gavel_tools_python":     "../../../gavel_tools_python+*/lint/aspects/defs.bzl",
+	"gavel_tools_typescript": "../../../gavel_tools_typescript+*/lint/aspects/defs.bzl",
+	"gavel_tools_rust":       "../../../gavel_tools_rust+*/lint/aspects/defs.bzl",
+	"gavel_tools_rust_rs":    "../../../gavel_tools_rust_rs+*/lint/aspects/defs.bzl",
 }
 
 // moduleFiles is the same for each module's MODULE.bazel (the core's is the
 // repository root, one level above this package).
 var moduleFiles = map[string]string{
-	coreModule:               "../MODULE.bazel",
-	"gavel_tools_go":         "../../gavel_tools_go+*/MODULE.bazel",
-	"gavel_tools_java":       "../../gavel_tools_java+*/MODULE.bazel",
-	"gavel_tools_python":     "../../gavel_tools_python+*/MODULE.bazel",
-	"gavel_tools_typescript": "../../gavel_tools_typescript+*/MODULE.bazel",
-	"gavel_tools_rust":       "../../gavel_tools_rust+*/MODULE.bazel",
-	"gavel_tools_rust_rs":    "../../gavel_tools_rust_rs+*/MODULE.bazel",
+	coreModule:               "../../MODULE.bazel",
+	"gavel_tools_go":         "../../../gavel_tools_go+*/MODULE.bazel",
+	"gavel_tools_java":       "../../../gavel_tools_java+*/MODULE.bazel",
+	"gavel_tools_python":     "../../../gavel_tools_python+*/MODULE.bazel",
+	"gavel_tools_typescript": "../../../gavel_tools_typescript+*/MODULE.bazel",
+	"gavel_tools_rust":       "../../../gavel_tools_rust+*/MODULE.bazel",
+	"gavel_tools_rust_rs":    "../../../gavel_tools_rust_rs+*/MODULE.bazel",
 }
 
 func globOne(t *testing.T, pattern string) string {
@@ -236,7 +236,7 @@ func TestModules_CoreImposesNoLanguageRulesetAndEachModuleOnlyItsOwn(t *testing.
 // released from one tag, so they share one version and depend on each other at
 // exactly that version.
 func TestModules_AllShareOneVersionAndPinEachOtherToIt(t *testing.T) {
-	files := map[string]string{"gavel_tools_web": "../../gavel_tools_web+*/MODULE.bazel"}
+	files := map[string]string{"gavel_tools_web": "../../../gavel_tools_web+*/MODULE.bazel"}
 	for module, pattern := range moduleFiles {
 		files[module] = pattern
 	}
@@ -245,7 +245,7 @@ func TestModules_AllShareOneVersionAndPinEachOtherToIt(t *testing.T) {
 
 	versions := map[string]bool{}
 	for module, pattern := range files {
-		path := "../MODULE.bazel"
+		path := "../../MODULE.bazel"
 		if module != coreModule {
 			path = globOne(t, pattern)
 		}
@@ -266,14 +266,14 @@ func TestModules_AllShareOneVersionAndPinEachOtherToIt(t *testing.T) {
 // Bazel 7/8 consumer's obscure loading error into a clear compatibility one, and
 // the BCR presubmits must not claim versions the modules refuse.
 func TestModules_DeclareBazel9AsTheOnlySupportedBazel(t *testing.T) {
-	files := map[string]string{"gavel_tools_web": "../../gavel_tools_web+*/MODULE.bazel"}
+	files := map[string]string{"gavel_tools_web": "../../../gavel_tools_web+*/MODULE.bazel"}
 	for module, pattern := range moduleFiles {
 		files[module] = pattern
 	}
 	compat := regexp.MustCompile(`(?s)module\((.*?)\n\)`)
 	want := `bazel_compatibility = [">=9.0.0"],`
 	for module, pattern := range files {
-		path := "../MODULE.bazel"
+		path := "../../MODULE.bazel"
 		if module != coreModule {
 			path = globOne(t, pattern)
 		}
@@ -286,9 +286,9 @@ func TestModules_DeclareBazel9AsTheOnlySupportedBazel(t *testing.T) {
 }
 
 func TestBCRPresubmits_TestBazel9Only(t *testing.T) {
-	paths := []string{"../.bcr/presubmit.yml"}
+	paths := []string{"../../.bcr/presubmit.yml"}
 	for _, lang := range []string{"go", "java", "python", "rust", "rust_rs", "typescript", "web"} {
-		paths = append(paths, "../.bcr/modules/"+lang+"/presubmit.yml")
+		paths = append(paths, "../../.bcr/modules/"+lang+"/presubmit.yml")
 	}
 	for _, path := range paths {
 		text, err := os.ReadFile(path)
@@ -400,4 +400,23 @@ func TestCatalog_RulesRsClippyVariantBindsToTheRulesRsModule(t *testing.T) {
 	assert.Equal(t, "gavel_tools_rust_rs", v.Module)
 	assert.Equal(t, "//lint/aspects:defs.bzl", v.AspectsBzl)
 	assert.Equal(t, "rust_clippy_submission_aspect", v.Aspect)
+}
+
+// A BUILD file that cannot load for a consumer only shows when something builds
+// a label of its package, so the BCR presubmit must build the ones consumers use.
+func TestBCRPresubmit_BuildsTheCatalogAndBridgeConsumersReference(t *testing.T) {
+	text, err := os.ReadFile("../../.bcr/presubmit.yml")
+	require.NoError(t, err)
+	var presubmit struct {
+		Tasks map[string]struct {
+			BuildTargets []string `yaml:"build_targets"`
+		} `yaml:"tasks"`
+	}
+	require.NoError(t, yaml.Unmarshal(text, &presubmit))
+	var targets []string
+	for _, task := range presubmit.Tasks {
+		targets = append(targets, task.BuildTargets...)
+	}
+	assert.Contains(t, targets, "@gavel_tools//lint:catalog.yaml")
+	assert.Contains(t, targets, "@gavel_tools//lint:bridge.bzl")
 }
