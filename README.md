@@ -26,7 +26,9 @@ consumer can read the results.
 ## Usage
 
 gavel-tools is published to the [Bazel Central Registry](https://registry.bazel.build/modules/gavel_tools).
-Depend on it by version — no extra registry configuration needed:
+Depend on it by version — no extra registry configuration needed. Bazel 9 is
+required; the supported range is each module's `bazel_compatibility` in its
+`MODULE.bazel`, so an older Bazel fails with a clear message.
 
 ```python
 # MODULE.bazel — the core plus one module per language you lint. gavel-tools

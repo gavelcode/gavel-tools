@@ -7,6 +7,7 @@ and this module's linter binaries: no Python toolchain is registered here.
 module(
     name = "gavel_tools_python",
     version = "0.4.0",
+    bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
 

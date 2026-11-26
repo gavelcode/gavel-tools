@@ -8,6 +8,7 @@ toolchain is registered for consumers.
 module(
     name = "gavel_tools_typescript",
     version = "0.4.0",
+    bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
 
