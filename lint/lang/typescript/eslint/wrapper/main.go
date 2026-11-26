@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"errors"
@@ -22,19 +22,20 @@ const (
 	storeParentDirName  = ".aspect_rules_js"
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	eslint := flag.String("eslint", "", "Path to the ESLint executable")
-	outputPath := flag.String("out", "", "SARIF output path")
-	config := flag.String("config", "", "Path to eslint.config.js")
-	flag.Parse()
+// Main runs the eslint tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("eslint", flag.ExitOnError)
+	eslint := flags.String("eslint", "", "Path to the ESLint executable")
+	outputPath := flags.String("out", "", "SARIF output path")
+	config := flags.String("config", "", "Path to eslint.config.js")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return expectedArgCount
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing TypeScript source files")
 		return expectedArgCount

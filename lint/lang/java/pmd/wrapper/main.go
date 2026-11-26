@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"errors"
@@ -38,18 +38,19 @@ const pmdRuleset = `<?xml version="1.0"?>
 </ruleset>
 `
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	pmdPath := flag.String("pmd", "", "Path to the pinned PMD executable")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the pmd tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("pmd", flag.ExitOnError)
+	pmdPath := flags.String("pmd", "", "Path to the pinned PMD executable")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Java source files")
 		return missingArgCode

@@ -1,9 +1,8 @@
-package main
+package wrapper
 
 import (
 	"encoding/json"
 	"encoding/xml"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,20 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 func writeFakeScript(t *testing.T, exitCode int) string {
 	t.Helper()
@@ -37,40 +22,36 @@ func writeFakeScript(t *testing.T, exitCode int) string {
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "file.java"})
+	toolArgs := []string{"file.java"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingFiles(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif"})
+	toolArgs := []string{"--out", "/tmp/out.sarif"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_RunError(t *testing.T) {
-	resetFlags(t)
 	t.Setenv("PATH", t.TempDir())
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif", "file.java"})
+	toolArgs := []string{"--out", "/tmp/out.sarif", "file.java"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 1, code)
 }
 
 func TestExecute_Success(t *testing.T) {
 	pmd := writeFakeScript(t, 0)
-	resetFlags(t)
 	out := filepath.Join(t.TempDir(), "out.sarif")
-	setArgs(t, []string{"test", "--pmd", pmd, "--out", out, "Test.java"})
+	toolArgs := []string{"--pmd", pmd, "--out", out, "Test.java"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 0, code)
 }

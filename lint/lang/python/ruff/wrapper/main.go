@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"errors"
@@ -17,18 +17,19 @@ const (
 	dirPermission  = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	ruffPath := flag.String("ruff", "", "Path to the pinned Ruff executable")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the ruff tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("ruff", flag.ExitOnError)
+	ruffPath := flags.String("ruff", "", "Path to the pinned Ruff executable")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeMisuse
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Python source files")
 		return exitCodeMisuse

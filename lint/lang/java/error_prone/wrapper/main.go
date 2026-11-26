@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"bytes"
@@ -98,21 +98,22 @@ const (
 	baseTen        = 10
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	errorProneJar := flag.String("error-prone-jar", "", "Path to error_prone_core-with-dependencies.jar")
-	dataflowJar := flag.String("dataflow-jar", "", "Path to dataflow-errorprone.jar")
-	javacFlag := flag.String("javac", "", "Path to the javac binary")
-	outputPath := flag.String("out", "", "SARIF output path")
-	classpath := flag.String("classpath", "", "Compilation classpath (colon-separated)")
-	flag.Parse()
+// Main runs the error-prone tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("error-prone", flag.ExitOnError)
+	errorProneJar := flags.String("error-prone-jar", "", "Path to error_prone_core-with-dependencies.jar")
+	dataflowJar := flags.String("dataflow-jar", "", "Path to dataflow-errorprone.jar")
+	javacFlag := flags.String("javac", "", "Path to the javac binary")
+	outputPath := flags.String("out", "", "SARIF output path")
+	classpath := flags.String("classpath", "", "Compilation classpath (colon-separated)")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Java source files")
 		return missingArgCode

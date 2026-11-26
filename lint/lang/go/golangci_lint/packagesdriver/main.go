@@ -1,4 +1,4 @@
-// Command packagesdriver is a static GOPACKAGESDRIVER for Bazel sandboxes.
+// Package packagesdriver is a static GOPACKAGESDRIVER for Bazel sandboxes.
 //
 // rules_go ships a gopackagesdriver that shells out to `bazel build` to
 // materialize the package graph — unusable inside a sandboxed aspect action
@@ -12,7 +12,7 @@
 // The FlatPackage schema and the import/test-split resolution mirror
 // rules_go's go/tools/gopackagesdriver (Apache-2.0); they are reimplemented
 // here over stdlib-only types so gavel-tools takes on no new dependency.
-package main
+package packagesdriver
 
 import (
 	"bufio"
@@ -78,27 +78,30 @@ type driverResponse struct {
 	Packages   []*FlatPackage
 }
 
-func main() {
+// Main answers one go/packages driver request: the patterns arrive as arguments and
+// the JSON response goes to stdout. It always returns 0 (see fail).
+func Main(patterns []string) int {
 	execRoot, err := os.Getwd()
 	if err != nil {
-		fail(err)
+		return fail(err)
 	}
-	resp, err := run(os.Getenv(manifestEnv), os.Getenv(stdlibDirEnv), execRoot, os.Args[1:])
+	resp, err := run(os.Getenv(manifestEnv), os.Getenv(stdlibDirEnv), execRoot, patterns)
 	if err != nil {
-		fail(err)
+		return fail(err)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(resp); err != nil {
-		fail(err)
+		return fail(err)
 	}
+	return 0
 }
 
-// fail prints the error but exits 0: go/packages falls back to `go list` on a
-// non-zero driver exit, which would silently defeat hermeticity. A handled
+// fail prints the error but reports success: go/packages falls back to `go list`
+// on a non-zero driver exit, which would silently defeat hermeticity. A handled
 // error surfaces as an empty response instead.
-func fail(err error) {
+func fail(err error) int {
 	fmt.Fprintf(os.Stderr, "packagesdriver: %v\n", err)
 	_ = json.NewEncoder(os.Stdout).Encode(&driverResponse{NotHandled: true})
-	os.Exit(0)
+	return 0
 }
 
 func run(manifestPath, stdlibDir, execRoot string, patterns []string) (*driverResponse, error) {

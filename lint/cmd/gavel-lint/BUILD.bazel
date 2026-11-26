@@ -1,0 +1,42 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "gavel-lint_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/gavelcode/gavel-tools/lint/cmd/gavel-lint",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//lint/lang/go/archtest/wrapper",
+        "//lint/lang/go/golangci_lint/packagesdriver",
+        "//lint/lang/go/golangci_lint/wrapper",
+        "//lint/lang/java/archtest/wrapper",
+        "//lint/lang/java/cpd/wrapper",
+        "//lint/lang/java/error_prone/wrapper",
+        "//lint/lang/java/pmd/wrapper",
+        "//lint/lang/java/spotbugs/wrapper",
+        "//lint/lang/python/archtest/wrapper",
+        "//lint/lang/python/bandit/wrapper",
+        "//lint/lang/python/pycompile/wrapper",
+        "//lint/lang/python/ruff/wrapper",
+        "//lint/lang/rust/archtest/wrapper",
+        "//lint/lang/rust/clippy/converter",
+        "//lint/lang/typescript/archtest/wrapper",
+        "//lint/lang/typescript/eslint/wrapper",
+    ],
+)
+
+go_binary(
+    name = "gavel-lint",
+    embed = [":gavel-lint_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "gavel-lint_test",
+    srcs = ["main_test.go"],
+    embed = [":gavel-lint_lib"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"bytes"
@@ -90,12 +90,13 @@ const (
 
 var pythonBinary string
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	python := flag.String("python", "", "Path to the python3 binary")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the pycompile tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("pycompile", flag.ExitOnError)
+	python := flags.String("python", "", "Path to the python3 binary")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "--out is required")
 		return exitCodeMisuse
@@ -103,7 +104,7 @@ func execute() int {
 
 	pythonBinary = resolvePython(*python)
 
-	findings, failures := analyze(flag.Args())
+	findings, failures := analyze(flags.Args())
 	invocation := sarif.Successful()
 	if len(failures) > 0 {
 		invocation = sarif.Failed(failures...)

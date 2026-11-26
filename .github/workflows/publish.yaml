@@ -22,6 +22,7 @@ jobs:
   # because their checksums are not guaranteed stable. Publishing our own
   # archive as an immutable release asset makes the checksum stable and
   # removes the need for the `@bazel-io skip_check unstable_url` escape hatch.
+  # The same job attaches the prebuilt gavel-lint binaries the archive points at.
   release-archive:
     runs-on: ubuntu-latest
     env:
@@ -33,21 +34,32 @@ jobs:
         with:
           ref: ${{ inputs.tag_name || github.ref_name }}
 
-      - name: Build and upload the source archive
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # The archive and the helper binaries are one unit: the archive stamps each
+      # binary's checksum, so they are built together, uploaded together, and never
+      # replaced once published.
+      - name: Build and upload the source archive and prebuilt binaries
         run: |
-          version="${TAG#v}"
           asset="gavel-tools-${TAG}.tar.gz"
           if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null \
             | grep -qx "$asset"; then
             echo "asset ${asset} already published; keeping existing bytes so the checksum stays stable"
             exit 0
           fi
-          git archive --format=tar.gz --prefix="gavel-tools-${version}/" -o "$asset" HEAD
+          bash .github/ci/release_prep.sh "$TAG" dist
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
           fi
-          gh release upload "$TAG" "$asset"
+          gh release upload "$TAG" dist/*
 
+  # One tag publishes every module in the archive: publish-to-bcr reads
+  # .bcr/config.yml (moduleRoots) and opens one BCR entry per module root, each
+  # with its own templates under .bcr/<root>/.
   publish:
     needs: release-archive
     uses: bazel-contrib/publish-to-bcr/.github/workflows/publish.yaml@v1.4.2

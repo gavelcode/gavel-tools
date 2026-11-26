@@ -85,7 +85,7 @@ gate_buildifier() {
 
 gate_gazelle() {
   info "gazelle — BUILD files up to date"
-  if ! bazel run //:gazelle >/dev/null 2>&1; then
+  if ! bazel run //dev:gazelle >/dev/null 2>&1; then
     fail "gazelle: run failed"
     record "gazelle"
     return

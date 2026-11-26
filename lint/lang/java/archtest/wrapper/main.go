@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"bufio"
@@ -21,12 +21,13 @@ const (
 	dirPermission  = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	config := flag.String("config", "", "Path to architecture.yml")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the java-archtest tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("java-archtest", flag.ExitOnError)
+	config := flags.String("config", "", "Path to architecture.yml")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
@@ -37,7 +38,7 @@ func execute() int {
 		return missingArgCode
 	}
 
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Java source files")
 		return missingArgCode

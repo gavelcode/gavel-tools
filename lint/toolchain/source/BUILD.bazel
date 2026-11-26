@@ -1,0 +1,9 @@
+load("//lint/toolchain:toolchain.bzl", "gavel_lint_toolchain")
+
+# Development / pre-release implementation: gavel-lint built from source with
+# rules_go. Never reached from a release, whose toolchains point at prebuilts.
+gavel_lint_toolchain(
+    name = "impl",
+    binary = "//lint/cmd/gavel-lint",
+    visibility = ["//visibility:public"],
+)

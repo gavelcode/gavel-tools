@@ -6,6 +6,23 @@ the one place that has to agree for `--output_groups=gavel_submissions` to
 collect every language's findings in a single build.
 """
 
+# The gavel-lint multi-call helper binary, delivered by a gavel-owned toolchain
+# (prebuilt per platform in releases, built from source in development) so
+# consumers never compile Go for gavel. See //lint/toolchain.
+GAVEL_LINT_TOOLCHAIN_TYPE = Label("//lint/toolchain:toolchain_type")
+
+def gavel_lint_binary(ctx):
+    """The gavel-lint executable of the resolved toolchain.
+
+    Args:
+        ctx: the aspect context; its aspect must list GAVEL_LINT_TOOLCHAIN_TYPE
+            in `toolchains`.
+
+    Returns:
+        The gavel-lint executable File.
+    """
+    return ctx.toolchains[GAVEL_LINT_TOOLCHAIN_TYPE].gavel_lint
+
 def empty_output_groups(transitive):
     """Keeps a skipped target transparent in the submission graph.
 

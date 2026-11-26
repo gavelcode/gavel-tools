@@ -1,8 +1,7 @@
-package main
+package wrapper
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,20 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 const fakeEslintEmit = `#!/bin/sh
 prev=""
@@ -51,41 +36,37 @@ func writeTempFile(t *testing.T, name, content string) string {
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "file.ts"})
+	toolArgs := []string{"file.ts"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingFiles(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif"})
+	toolArgs := []string{"--out", "/tmp/out.sarif"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_RunError(t *testing.T) {
-	resetFlags(t)
 	t.Setenv("PATH", t.TempDir())
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif", "file.ts"})
+	toolArgs := []string{"--out", "/tmp/out.sarif", "file.ts"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 1, code)
 }
 
 func TestExecute_Success(t *testing.T) {
 	eslint := writeFakeEslint(t, 0)
-	resetFlags(t)
 	src := writeTempFile(t, "app.ts", "const x = 1;")
 	out := filepath.Join(t.TempDir(), "out.sarif")
-	setArgs(t, []string{"test", "--eslint", eslint, "--out", out, src})
+	toolArgs := []string{"--eslint", eslint, "--out", out, src}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 0, code)
 }

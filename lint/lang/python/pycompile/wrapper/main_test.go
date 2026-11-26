@@ -1,8 +1,7 @@
-package main
+package wrapper
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,20 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 func savePythonBinary(t *testing.T) {
 	t.Helper()
@@ -48,39 +33,36 @@ func writeFakeScript(t *testing.T, exitCode int, stderrLine string) string {
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test"})
+	toolArgs := []string{}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_Success(t *testing.T) {
-	resetFlags(t)
 	savePythonBinary(t)
 	dir := t.TempDir()
 	file := filepath.Join(dir, "clean.py")
 	require.NoError(t, os.WriteFile(file, []byte("x = 1\n"), 0o644))
 	out := filepath.Join(dir, "out.sarif")
 	fakePython := writeFakeScript(t, 0, "")
-	setArgs(t, []string{"test", "--python", fakePython, "--out", out, file})
+	toolArgs := []string{"--python", fakePython, "--out", out, file}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 0, code)
 }
 
 func TestExecute_WriteSARIFError(t *testing.T) {
-	resetFlags(t)
 	savePythonBinary(t)
 	dir := t.TempDir()
 	file := filepath.Join(dir, "clean.py")
 	require.NoError(t, os.WriteFile(file, []byte("x = 1\n"), 0o644))
 	fakePython := writeFakeScript(t, 0, "")
-	setArgs(t, []string{"test", "--python", fakePython, "--out", "/dev/null/impossible/out.sarif", file})
+	toolArgs := []string{"--python", fakePython, "--out", "/dev/null/impossible/out.sarif", file}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 1, code)
 }

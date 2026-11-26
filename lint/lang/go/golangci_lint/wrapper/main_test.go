@@ -1,7 +1,6 @@
-package main
+package wrapper
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,20 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 const fakeGolangciEmit = `#!/bin/sh
 for a in "$@"; do case "$a" in --output.sarif.path=*) o="${a#--output.sarif.path=}";; esac; done
@@ -41,35 +26,31 @@ func writeFakeScript(t *testing.T, name string, exitCode int) string {
 }
 
 func TestExecute_MissingPackage(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif"})
+	toolArgs := []string{"--out", "/tmp/out.sarif"}
 
-	assert.Equal(t, 2, execute())
+	assert.Equal(t, 2, Main(toolArgs))
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--package", "./internal/order"})
+	toolArgs := []string{"--package", "./internal/order"}
 
-	assert.Equal(t, 2, execute())
+	assert.Equal(t, 2, Main(toolArgs))
 }
 
 func TestExecute_RunError(t *testing.T) {
-	resetFlags(t)
 	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
-	setArgs(t, []string{"test", "--package", "./pkg", "--out", filepath.Join(dir, "out.sarif")})
+	toolArgs := []string{"--package", "./pkg", "--out", filepath.Join(dir, "out.sarif")}
 
-	assert.Equal(t, 1, execute())
+	assert.Equal(t, 1, Main(toolArgs))
 }
 
 func TestExecute_Success(t *testing.T) {
 	lint := writeFakeScript(t, "golangci-lint", 0)
-	resetFlags(t)
 	dir := t.TempDir()
-	setArgs(t, []string{"test", "--golangci-lint", lint, "--package", "./pkg", "--out", filepath.Join(dir, "out.sarif")})
+	toolArgs := []string{"--golangci-lint", lint, "--package", "./pkg", "--out", filepath.Join(dir, "out.sarif")}
 
-	assert.Equal(t, 0, execute())
+	assert.Equal(t, 0, Main(toolArgs))
 }
 
 func TestRun_MkdirAllError(t *testing.T) {
@@ -249,4 +230,40 @@ func envToMap(env []string) map[string]string {
 		}
 	}
 	return result
+}
+
+func TestLinkSelfAs_CreatesLauncherPointingAtThisBinary(t *testing.T) {
+	dir := t.TempDir()
+
+	launcher, err := linkSelfAs(dir, "gavel-packagesdriver")
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "gavel-packagesdriver"), launcher)
+	self, err := os.Executable()
+	require.NoError(t, err)
+	target, err := os.Readlink(launcher)
+	require.NoError(t, err)
+	assert.Equal(t, self, target)
+}
+
+func TestLinkSelfAs_FailsWhenDirMissing(t *testing.T) {
+	_, err := linkSelfAs(filepath.Join(t.TempDir(), "missing"), "x")
+
+	assert.Error(t, err)
+}
+
+func TestRun_WithoutDriverFlagLaunchesSelfAsPackagesDriver(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "driver.txt")
+	script := fakeGolangciEmit + `[ -L "$GOPACKAGESDRIVER" ] && echo "link $GOPACKAGESDRIVER" > ` + record + "\nexit 0\n"
+	lint := filepath.Join(dir, "golangci-lint")
+	require.NoError(t, os.WriteFile(lint, []byte(script), 0o755))
+
+	err := run(lint, "", "", "", "", "./pkg", filepath.Join(dir, "out.sarif"), false)
+
+	require.NoError(t, err)
+	got, readErr := os.ReadFile(record)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(got), "link ")
+	assert.Contains(t, string(got), "gavel-packagesdriver")
 }

@@ -6,7 +6,9 @@ tasks:
     name: "Build and test gavel_tools"
     platform: ${{ platform }}
     bazel: ${{ bazel }}
+    # The release archive builds gavel-lint nowhere: the Go dependencies of its
+    # sources are dev-only, so `@gavel_tools//...` would not load. Build what a
+    # consumer loads; the Go sources are built and tested by this repo's own CI.
     build_targets:
-      - "@gavel_tools//..."
-    test_targets:
-      - "@gavel_tools//..."
+      - "@gavel_tools//lint/toolchain:toolchain_type"
+      - "@gavel_tools//lint/aspects:defs.bzl"
