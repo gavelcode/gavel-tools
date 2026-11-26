@@ -1,0 +1,2 @@
+# Read by //lint/catalogtest, which checks what this package loads.
+exports_files(["BUILD.bazel"])

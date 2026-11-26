@@ -12,3 +12,5 @@ tasks:
     build_targets:
       - "@gavel_tools//lint/toolchain:toolchain_type"
       - "@gavel_tools//lint/aspects:defs.bzl"
+      - "@gavel_tools//lint:catalog.yaml"
+      - "@gavel_tools//lint:bridge.bzl"

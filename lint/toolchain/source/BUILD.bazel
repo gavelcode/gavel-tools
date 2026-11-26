@@ -7,3 +7,6 @@ gavel_lint_toolchain(
     binary = "//lint/cmd/gavel-lint",
     visibility = ["//visibility:public"],
 )
+
+# Read by //lint/catalogtest, which checks what this package loads.
+exports_files(["BUILD.bazel"])

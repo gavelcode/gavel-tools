@@ -11,3 +11,6 @@ toolchain_type(
     name = "toolchain_type",
     visibility = ["//visibility:public"],
 )
+
+# Read by //lint/catalogtest, which checks what this package loads.
+exports_files(["BUILD.bazel"])

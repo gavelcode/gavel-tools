@@ -1,0 +1,67 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "catalogtest_test",
+    srcs = [
+        "catalog_test.go",
+        "packages_test.go",
+    ],
+    data = [
+        "//:.bcr/modules/go/presubmit.yml",
+        "//:.bcr/modules/java/presubmit.yml",
+        "//:.bcr/modules/python/presubmit.yml",
+        "//:.bcr/modules/rust/presubmit.yml",
+        "//:.bcr/modules/rust_rs/presubmit.yml",
+        "//:.bcr/modules/typescript/presubmit.yml",
+        "//:.bcr/modules/web/presubmit.yml",
+        "//:.bcr/presubmit.yml",
+        "//:BUILD.bazel",
+        "//:MODULE.bazel",
+        "//lint:BUILD.bazel",
+        "//lint:catalog.yaml",
+        "//lint/aspects:BUILD.bazel",
+        "//lint/aspects:defs.bzl",
+        "//lint/toolchain:BUILD.bazel",
+        "//lint/toolchain/source:BUILD.bazel",
+        "@gavel_tools_go//:BUILD.bazel",  # keep
+        "@gavel_tools_go//:MODULE.bazel",  # keep
+        "@gavel_tools_go//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_go//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_go//lint/lang/go/golangci_lint:BUILD.bazel",  # keep
+        "@gavel_tools_java//:BUILD.bazel",  # keep
+        "@gavel_tools_java//:MODULE.bazel",  # keep
+        "@gavel_tools_java//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_java//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_java//lint/lang/java/error_prone:BUILD.bazel",  # keep
+        "@gavel_tools_java//lint/lang/java/pmd:BUILD.bazel",  # keep
+        "@gavel_tools_java//lint/lang/java/spotbugs:BUILD.bazel",  # keep
+        "@gavel_tools_python//:BUILD.bazel",  # keep
+        "@gavel_tools_python//:MODULE.bazel",  # keep
+        "@gavel_tools_python//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_python//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_python//lint/lang/python/bandit:BUILD.bazel",  # keep
+        "@gavel_tools_python//lint/lang/python/ruff:BUILD.bazel",  # keep
+        "@gavel_tools_rust//:BUILD.bazel",  # keep
+        "@gavel_tools_rust//:MODULE.bazel",  # keep
+        "@gavel_tools_rust//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_rust//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_rust_rs//:BUILD.bazel",  # keep
+        "@gavel_tools_rust_rs//:MODULE.bazel",  # keep
+        "@gavel_tools_rust_rs//lint:BUILD.bazel",  # keep
+        "@gavel_tools_rust_rs//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_rust_rs//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_typescript//:BUILD.bazel",  # keep
+        "@gavel_tools_typescript//:MODULE.bazel",  # keep
+        "@gavel_tools_typescript//lint/aspects:BUILD.bazel",  # keep
+        "@gavel_tools_typescript//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_typescript//lint/lang/typescript/eslint:BUILD.bazel",  # keep
+        "@gavel_tools_web//:BUILD.bazel",  # keep
+        "@gavel_tools_web//:MODULE.bazel",  # keep
+        "@gavel_tools_web//macros:BUILD.bazel",  # keep
+    ],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)

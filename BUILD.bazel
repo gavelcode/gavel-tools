@@ -4,6 +4,7 @@
 
 exports_files(
     [
+        "BUILD.bazel",
         "MODULE.bazel",
         "go.mod",
         "go.sum",
