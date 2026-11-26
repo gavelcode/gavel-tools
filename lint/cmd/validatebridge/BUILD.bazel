@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "validatebridge",
+    srcs = ["main.go"],
+    importpath = "github.com/gavelcode/gavel-tools/lint/cmd/validatebridge",
+    visibility = ["//lint/cmd/gavel-lint:__pkg__"],
+    deps = ["//lint/sarif"],
+)
+
+go_test(
+    name = "validatebridge_test",
+    srcs = ["main_test.go"],
+    embed = [":validatebridge"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

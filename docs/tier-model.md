@@ -8,6 +8,18 @@ tags: [hermeticity, sandbox, golangci-lint, eslint, maintenance-contract]
 
 # The hermetic analyzer driver
 
+## Helper binaries are prebuilt
+
+All of gavel's own Go helpers (wrappers, converters, the packages driver) are one
+multi-call binary, `gavel-lint <tool>` ([`lint/cmd/gavel-lint`](../lint/cmd/gavel-lint)).
+Aspects obtain it through the gavel-owned toolchain type
+[`//lint/toolchain:toolchain_type`](../lint/toolchain/BUILD.bazel). Published
+releases resolve it to a per-platform binary attached to the GitHub release, so a
+consumer never compiles Go for gavel; development builds resolve it to a source
+build. The switch is `IS_RELEASE` in [`MODULE.bazel`](../MODULE.bazel), flipped only
+in the release archive ([releasing](releasing.md)). The pieces are in
+[`lint/toolchain/`](../lint/toolchain).
+
 Every analyzer in gavel-tools runs **sandboxed** — hermetic, cacheable, offline,
 no host access. The principle that got them all there:
 
@@ -38,7 +50,9 @@ go/packages accepts a **`GOPACKAGESDRIVER`**, and rules_go's
 `pkg.json` per package, plus compiled `export` data for deps and the stdlib
 under `--@rules_go//go/config:export_stdlib=True`). We declare all of those as
 action inputs and point golangci-lint at a **static driver**
-(`lint/lang/go/golangci_lint/packagesdriver`) that reads them and never shells
+(`lint/lang/go/golangci_lint/packagesdriver`, run as `gavel-lint packagesdriver`:
+the wrapper re-executes itself through a symlink named for the driver, because
+`GOPACKAGESDRIVER` must be a plain executable path) that reads them and never shells
 out to Bazel or the network. The result is fully sandboxed: no host `go`, no
 module fetches, every input declared, cache-correct.
 

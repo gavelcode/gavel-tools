@@ -1,7 +1,9 @@
-package main
+package packagesdriver
 
 import (
+	"encoding/json"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -272,4 +274,55 @@ func TestFilterBuildTags_KeepsCgoProcessedFiles(t *testing.T) {
 	got := filterBuildTags([]string{"/x/_cgo_gotypes.go", "/x/foo.cgo1.go"})
 
 	assert.Equal(t, []string{"/x/_cgo_gotypes.go", "/x/foo.cgo1.go"}, got)
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	original := os.Stdout
+	os.Stdout = writer
+	defer func() { os.Stdout = original }()
+
+	fn()
+
+	require.NoError(t, writer.Close())
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func TestMain_HandledErrorStillExitsZeroWithNotHandledResponse(t *testing.T) {
+	t.Setenv(manifestEnv, "")
+	var code int
+
+	out := captureStdout(t, func() { code = Main(nil) })
+
+	assert.Equal(t, 0, code, "a non-zero exit would make go/packages fall back to go list")
+	var resp driverResponse
+	require.NoError(t, json.Unmarshal([]byte(out), &resp))
+	assert.True(t, resp.NotHandled)
+}
+
+func TestMain_AnswersRequestWithPackagesJSON(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "verdict.go")
+	require.NoError(t, os.WriteFile(src, []byte("package verdict\n"), 0o644))
+	pkgJSON := filepath.Join(dir, "verdict.pkg.json")
+	require.NoError(t, os.WriteFile(pkgJSON, []byte(
+		`{"ID":"//v:v","Name":"verdict","PkgPath":"v","GoFiles":["`+src+`"],"CompiledGoFiles":["`+src+`"]}`), 0o644))
+	manifest := filepath.Join(dir, "manifest")
+	require.NoError(t, os.WriteFile(manifest, []byte(pkgJSON+"\n"), 0o644))
+	t.Setenv(manifestEnv, manifest)
+	t.Setenv(stdlibDirEnv, "")
+	var code int
+
+	out := captureStdout(t, func() { code = Main([]string{"file=" + src}) })
+
+	assert.Equal(t, 0, code)
+	var resp driverResponse
+	require.NoError(t, json.Unmarshal([]byte(out), &resp))
+	assert.False(t, resp.NotHandled)
+	assert.Equal(t, []string{"//v:v"}, resp.Roots)
 }

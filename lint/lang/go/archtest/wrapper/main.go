@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"bufio"
@@ -17,13 +17,14 @@ const (
 	dirPermission  = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	config := flag.String("config", "", "Path to architecture.yml")
-	outputFlag := flag.String("out", "", "SARIF output path")
-	modulePrefix := flag.String("module-prefix", "", "Go module path used to strip import prefixes; falls back to go.mod when empty")
-	flag.Parse()
+// Main runs the go-archtest tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("go-archtest", flag.ExitOnError)
+	config := flags.String("config", "", "Path to architecture.yml")
+	outputFlag := flags.String("out", "", "SARIF output path")
+	modulePrefix := flags.String("module-prefix", "", "Go module path used to strip import prefixes; falls back to go.mod when empty")
+	_ = flags.Parse(arguments)
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
@@ -34,7 +35,7 @@ func execute() int {
 		return exitUsageError
 	}
 
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Go source files")
 		return exitUsageError

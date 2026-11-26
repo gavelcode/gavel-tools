@@ -2,13 +2,13 @@
 title: web_project macro
 type: reference
 description: One macro that generates a frontend app's whole Bazel build graph and its gavel-lintable unit.
-resource: https://github.com/gavelcode/gavel-tools/blob/main/macros/web.bzl
+resource: https://github.com/gavelcode/gavel-tools/blob/main/modules/web/macros/web.bzl
 tags: [typescript, eslint, bazel, macro]
 ---
 
 # web_project macro
 
-`@gavel_tools//macros:web.bzl%web_project` generates a frontend app's entire
+`@gavel_tools_web//macros:web.bzl%web_project` generates a frontend app's entire
 Bazel build graph — esbuild bundle, tailwind CSS, production `dist/`, `tsc`
 type-check and ESLint — from a single declaration, so a consumer stops
 hand-wiring the bundler, `copy_file`, tailwind and tool glue by hand. Owning
@@ -17,7 +17,7 @@ mission.
 
 > [!NOTE]
 > The parameter list and the exact generated target names are the macro's own
-> contract and live in its docstring (`macros/web.bzl`) — the source of truth
+> contract and live in its docstring (`modules/web/macros/web.bzl`) — the source of truth
 > this page does not copy, so it cannot drift. This page carries only what the
 > code cannot say for itself: the shape of the graph and how ESLint behaves.
 

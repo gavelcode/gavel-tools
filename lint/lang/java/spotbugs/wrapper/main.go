@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"encoding/json"
@@ -96,18 +96,19 @@ const (
 	dirPermission  = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	spotbugs := flag.String("spotbugs", "", "Path to the pinned SpotBugs executable")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the spotbugs tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("spotbugs", flag.ExitOnError)
+	spotbugs := flags.String("spotbugs", "", "Path to the pinned SpotBugs executable")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
-	jarFiles := flag.Args()
+	jarFiles := flags.Args()
 	if len(jarFiles) == 0 {
 		fmt.Fprintln(os.Stderr, "missing jars")
 		return missingArgCode

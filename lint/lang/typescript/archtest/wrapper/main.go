@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"bufio"
@@ -27,12 +27,13 @@ var (
 	dynamicImportRe       = regexp.MustCompile(`import\(\s*['"]([^'"]+)['"]\s*\)`)
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	config := flag.String("config", "", "Path to architecture.yml")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the typescript-archtest tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("typescript-archtest", flag.ExitOnError)
+	config := flags.String("config", "", "Path to architecture.yml")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *config == "" {
 		fmt.Fprintln(os.Stderr, "missing --config")
@@ -43,7 +44,7 @@ func execute() int {
 		return expectedArgCount
 	}
 
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing TypeScript source files")
 		return expectedArgCount

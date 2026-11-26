@@ -1,7 +1,6 @@
-package main
+package wrapper
 
 import (
-	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,20 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 func chdir(t *testing.T, dir string) {
 	t.Helper()
@@ -52,37 +37,33 @@ rules:
 }
 
 func TestExecute_MissingConfig(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif", "file.ts"})
+	toolArgs := []string{"--out", "/tmp/out.sarif", "file.ts"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", "/tmp/arch.yml", "file.ts"})
+	toolArgs := []string{"--config", "/tmp/arch.yml", "file.ts"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingFiles(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", "/tmp/arch.yml", "--out", "/tmp/out.sarif"})
+	toolArgs := []string{"--config", "/tmp/arch.yml", "--out", "/tmp/out.sarif"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_RunError(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", "/nonexistent/arch.yml", "--out", "/tmp/out.sarif", "file.ts"})
+	toolArgs := []string{"--config", "/nonexistent/arch.yml", "--out", "/tmp/out.sarif", "file.ts"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 1, code)
 }
@@ -94,10 +75,9 @@ func TestExecute_Success(t *testing.T) {
 	require.NoError(t, os.WriteFile(srcFile, []byte("const x = 1;\n"), 0o644))
 	outPath := filepath.Join(dir, "out", "result.sarif")
 
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", configPath, "--out", outPath, srcFile})
+	toolArgs := []string{"--config", configPath, "--out", outPath, srcFile}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 0, code)
 }

@@ -1,0 +1,5 @@
+# Loading defs.bzl here evaluates every aspect definition at package-load time,
+# so `bazel build //lint/aspects:all` (the BCR presubmit) fails if one is broken.
+load(":defs.bzl", "python_archtest_submission_aspect", "python_bandit_submission_aspect", "python_pycompile_submission_aspect", "python_ruff_submission_aspect")
+
+exports_files(["defs.bzl"])

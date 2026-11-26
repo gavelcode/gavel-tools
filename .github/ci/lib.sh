@@ -40,9 +40,9 @@ warn() { printf '%s!%s %s\n' "$C_YELLOW" "$C_OFF" "$*"; }
 fail() { printf '%s✗%s %s\n' "$C_RED" "$C_OFF" "$*"; }
 
 # build_files lists every Starlark file gazelle/buildifier own, skipping the
-# bazel-* convenience symlinks so we never descend into the output tree.
+# bazel-* convenience symlinks (also those inside modules/*) so we never descend into the output tree.
 build_files() {
-  find "${REPO_ROOT}" -path "${REPO_ROOT}/bazel-*" -prune -o \
+  find "${REPO_ROOT}" -path "*/bazel-*" -prune -o \
     \( -name BUILD.bazel -o -name BUILD -o -name '*.bzl' -o -name MODULE.bazel -o -name WORKSPACE \) \
     -print
 }

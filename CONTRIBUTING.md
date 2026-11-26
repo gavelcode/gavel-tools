@@ -20,17 +20,19 @@ bazel test //...
 If you change Go code, regenerate the `BUILD.bazel` files:
 
 ```bash
-bazel run //:gazelle
+bazel run //dev:gazelle
 ```
 
 ## Layout
 
 ```
+modules/<lang>/        # one Bazel module per language: its aspects and linter binaries
 lint/
-├── aspects/           # lint aspects: one <lang>.bzl each; defs.bzl re-exports them
+├── aspects/           # core aspects (no language ruleset) and shared helpers
 ├── archtest/          # shared architecture-test library
-└── lang/<lang>/<tool>/ # per-tool Go wrapper that invokes the tool → SARIF
-macros/                # build macros (e.g. web_project)
+├── cmd/gavel-lint/    # the one multi-call helper binary every aspect runs
+├── toolchain/         # delivers gavel-lint: prebuilt in releases, source in dev
+└── lang/<lang>/<tool>/ # per-tool Go package (`Main`) that invokes the tool → SARIF
 docs/                  # design docs (OKF bundle) — see docs/index.md
 ```
 
@@ -39,12 +41,17 @@ See [`docs/repository-layout.md`](docs/repository-layout.md) for the full map an
 
 ## Adding a linter or language
 
-1. Add the aspect in `lint/aspects/<language>.bzl` and re-export it from
-   `lint/aspects/defs.bzl` (the stable public entry point).
-2. Add the per-tool wrapper under `lint/lang/<language>/<tool>/` (Go binary that
-   runs the tool and produces SARIF — natively where the tool emits it, via a
-   converter where it does not).
-3. Declare the tool's binary repository in `MODULE.bazel`.
+1. Add the aspect in `modules/<language>/lint/aspects/<language>.bzl` and re-export
+   it from that module's `lint/aspects/defs.bzl` (the stable public entry point).
+   An aspect that loads no language ruleset belongs in the core `lint/aspects/`.
+2. Add the per-tool wrapper under `lint/lang/<language>/<tool>/` (a Go package
+   exposing `Main(args) int` that runs the tool and produces SARIF — natively
+   where the tool emits it, via a converter where it does not), register it as a
+   subcommand in `lint/cmd/gavel-lint/main.go`, and have the aspect run
+   `gavel-lint <tool> …` through the toolchain (`gavel_lint_binary(ctx)` in
+   `lint/aspects/common.bzl`). Never add a per-tool `go_binary`.
+3. Declare the tool's binary repository in the language module's `MODULE.bazel`
+   (never the core's), and list the tool in `lint/catalog.yaml` with its `module`.
 4. For architecture validation, extend `lint/archtest/`.
 5. Add tests, and document the tool in the relevant `docs/` concept file.
 

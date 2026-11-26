@@ -1,0 +1,5 @@
+# Loading defs.bzl here evaluates every aspect definition at package-load time,
+# so `bazel build //lint/aspects:all` (the BCR presubmit) fails if one is broken.
+load(":defs.bzl", "java_archtest_submission_aspect", "java_cpd_submission_aspect", "java_error_prone_submission_aspect", "java_pmd_submission_aspect", "java_spotbugs_submission_aspect")
+
+exports_files(["defs.bzl"])

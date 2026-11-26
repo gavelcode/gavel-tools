@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"encoding/json"
@@ -92,19 +92,20 @@ const (
 	dirPermission    = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	pmdPath := flag.String("pmd", "", "Path to the pinned PMD executable")
-	outputPath := flag.String("out", "", "SARIF output path")
-	minimumTokens := flag.Int("minimum-tokens", defaultMinTokens, "Minimum token length for duplicate detection")
-	flag.Parse()
+// Main runs the cpd tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("cpd", flag.ExitOnError)
+	pmdPath := flags.String("pmd", "", "Path to the pinned PMD executable")
+	outputPath := flags.String("out", "", "SARIF output path")
+	minimumTokens := flags.Int("minimum-tokens", defaultMinTokens, "Minimum token length for duplicate detection")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return missingArgCode
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Java source files")
 		return missingArgCode

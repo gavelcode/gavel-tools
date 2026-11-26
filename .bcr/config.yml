@@ -1,0 +1,12 @@
+# One archive, several modules: the core module at the repository root and one
+# module per language (and the web_project macros) under modules/. Each root has
+# its own templates under .bcr/<root>/ (the root's are directly in .bcr/).
+moduleRoots:
+  - "."
+  - modules/go
+  - modules/java
+  - modules/python
+  - modules/typescript
+  - modules/web
+  - modules/rust
+  - modules/rust_rs

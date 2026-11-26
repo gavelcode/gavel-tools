@@ -1,10 +1,10 @@
-load("@gazelle//:def.bzl", "gazelle")
-
 # gazelle:prefix github.com/gavelcode/gavel-tools
-gazelle(name = "gazelle")
+# The gazelle target lives in //dev: it is a dev dependency, and this package is
+# loaded by every consumer (aspects reference //:go.mod).
 
 exports_files(
     [
+        "MODULE.bazel",
         "go.mod",
         "go.sum",
     ],

@@ -1,0 +1,5 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+# Development only: gazelle is a dev dependency, so nothing a consumer loads may
+# depend on this package. (The `# gazelle:prefix` directive stays in the root BUILD.)
+gazelle(name = "gazelle")

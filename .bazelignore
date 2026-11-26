@@ -1,0 +1,4 @@
+# Each directory under modules/ is its own Bazel module (see docs/repository-layout.md),
+# reached through the dev-only local_path_override in MODULE.bazel, not a package of
+# this one: //... must not load their aspects without their rulesets.
+modules

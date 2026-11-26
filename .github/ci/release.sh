@@ -54,16 +54,22 @@ git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1 &&
 git ls-remote --exit-code --tags origin "${TAG}" >/dev/null 2>&1 &&
   die "tag ${TAG} already exists on origin"
 
-# Bump the module() version — the first `version = "..."` in MODULE.bazel, ahead
-# of the bazel_dep and tool-binary versions.
+# Bump every module, the root and each modules/<lang>: they are released from one
+# tag and share one version. In each MODULE.bazel the first `version = "..."` is
+# the module() one (ahead of every bazel_dep and tool-binary version); the
+# bazel_dep versions between our own modules are pinned to the same release.
 current="$(grep -m1 -E '^\s*version = "' MODULE.bazel | sed -E 's/.*"([^"]+)".*/\1/')"
 [ -n "${current}" ] || die "could not read the current version from MODULE.bazel"
 if [ "${current}" = "${VERSION}" ]; then
   die "MODULE.bazel is already at ${VERSION}"
 fi
-info "release: bumping MODULE.bazel ${current} -> ${VERSION}"
-perl -pi -e 'if (!$seen && s/version = "[^"]+"/version = "'"${VERSION}"'"/) { $seen = 1 }' MODULE.bazel
-git add MODULE.bazel
+info "release: bumping every module ${current} -> ${VERSION}"
+module_files=(MODULE.bazel modules/*/MODULE.bazel)
+for module_file in "${module_files[@]}"; do
+  perl -pi -e 'if (!$seen && s/version = "[^"]+"/version = "'"${VERSION}"'"/) { $seen = 1 }
+    s/(bazel_dep\(name = "gavel_tools[a-z_]*", version = ")[^"]+/${1}'"${VERSION}"'/' "${module_file}"
+done
+git add "${module_files[@]}"
 git commit -q -m "chore(release): v${VERSION}"
 git push -q origin main
 sha="$(git rev-parse @)"

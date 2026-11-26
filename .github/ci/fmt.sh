@@ -21,7 +21,7 @@ build_files | xargs go run "${BUILDIFIER_PKG}" -mode=fix
 pass "Starlark formatted"
 
 info "gazelle"
-bazel run //:gazelle >/dev/null 2>&1
+bazel run //dev:gazelle >/dev/null 2>&1
 pass "BUILD files regenerated"
 
 info "go mod tidy"

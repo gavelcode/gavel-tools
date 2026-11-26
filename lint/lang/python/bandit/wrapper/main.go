@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"errors"
@@ -17,19 +17,20 @@ const (
 	dirPermission  = 0o755
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	pythonFlag := flag.String("python", "", "Path to the python3 binary")
-	sitePackages := flag.String("site-packages", "", "Path to Bandit site-packages directory")
-	outputPath := flag.String("out", "", "SARIF output path")
-	flag.Parse()
+// Main runs the bandit tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("bandit", flag.ExitOnError)
+	pythonFlag := flags.String("python", "", "Path to the python3 binary")
+	sitePackages := flags.String("site-packages", "", "Path to Bandit site-packages directory")
+	outputPath := flags.String("out", "", "SARIF output path")
+	_ = flags.Parse(arguments)
 
 	if *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "missing --out")
 		return exitCodeMisuse
 	}
-	files := flag.Args()
+	files := flags.Args()
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "missing Python source files")
 		return exitCodeMisuse

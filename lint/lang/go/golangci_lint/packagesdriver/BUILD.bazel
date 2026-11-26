@@ -1,22 +1,16 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "packagesdriver_lib",
+    name = "packagesdriver",
     srcs = ["main.go"],
     importpath = "github.com/gavelcode/gavel-tools/lint/lang/go/golangci_lint/packagesdriver",
-    visibility = ["//visibility:private"],
-)
-
-go_binary(
-    name = "packagesdriver",
-    embed = [":packagesdriver_lib"],
-    visibility = ["//visibility:public"],
+    visibility = ["//lint/cmd/gavel-lint:__pkg__"],
 )
 
 go_test(
     name = "packagesdriver_test",
     srcs = ["main_test.go"],
-    embed = [":packagesdriver_lib"],
+    embed = [":packagesdriver"],
     deps = [
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",

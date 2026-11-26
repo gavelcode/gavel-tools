@@ -1,7 +1,6 @@
-package main
+package wrapper
 
 import (
-	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,20 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func resetFlags(t *testing.T) {
-	t.Helper()
-	orig := flag.CommandLine
-	t.Cleanup(func() { flag.CommandLine = orig })
-	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-}
-
-func setArgs(t *testing.T, args []string) {
-	t.Helper()
-	orig := os.Args
-	t.Cleanup(func() { os.Args = orig })
-	os.Args = args
-}
 
 func chdir(t *testing.T, dir string) {
 	t.Helper()
@@ -51,44 +36,39 @@ func writeConfig(t *testing.T, dir string) string {
 }
 
 func TestExecute_MissingConfig(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--out", "/tmp/out.sarif", "file.py"})
+	toolArgs := []string{"--out", "/tmp/out.sarif", "file.py"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingOut(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", "/tmp/arch.yml", "file.py"})
+	toolArgs := []string{"--config", "/tmp/arch.yml", "file.py"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_MissingFiles(t *testing.T) {
-	resetFlags(t)
-	setArgs(t, []string{"test", "--config", "/tmp/arch.yml", "--out", "/tmp/out.sarif"})
+	toolArgs := []string{"--config", "/tmp/arch.yml", "--out", "/tmp/out.sarif"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 2, code)
 }
 
 func TestExecute_RunError(t *testing.T) {
-	resetFlags(t)
 	dir := t.TempDir()
-	setArgs(t, []string{"test", "--config", "/nonexistent/arch.yml", "--out", filepath.Join(dir, "out.sarif"), "file.py"})
+	toolArgs := []string{"--config", "/nonexistent/arch.yml", "--out", filepath.Join(dir, "out.sarif"), "file.py"}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 1, code)
 }
 
 func TestExecute_Success(t *testing.T) {
-	resetFlags(t)
 	dir := t.TempDir()
 	configPath := writeConfig(t, dir)
 	srcDir := filepath.Join(dir, "src", "domain")
@@ -96,9 +76,9 @@ func TestExecute_Success(t *testing.T) {
 	srcFile := filepath.Join(srcDir, "test.py")
 	require.NoError(t, os.WriteFile(srcFile, []byte("import os\n"), 0o644))
 	outPath := filepath.Join(dir, "out", "result.sarif")
-	setArgs(t, []string{"test", "--config", configPath, "--out", outPath, srcFile})
+	toolArgs := []string{"--config", configPath, "--out", outPath, srcFile}
 
-	code := execute()
+	code := Main(toolArgs)
 
 	assert.Equal(t, 0, code)
 }

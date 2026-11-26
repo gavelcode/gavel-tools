@@ -1,4 +1,4 @@
-package main
+package wrapper
 
 import (
 	"errors"
@@ -14,20 +14,26 @@ import (
 const (
 	exitUsageError = 2
 	dirPermission  = 0o755
+
+	// DriverLauncherName is the name the wrapper gives the symlink to its own
+	// binary that it hands golangci-lint as GOPACKAGESDRIVER. The multi-call
+	// binary recognises that argv[0] and runs the packages driver.
+	DriverLauncherName = "gavel-packagesdriver"
 )
 
-func main() { os.Exit(execute()) }
-
-func execute() int {
-	binary := flag.String("golangci-lint", "", "Path to the pinned golangci-lint binary")
-	driver := flag.String("driver", "", "Path to the static gopackagesdriver binary")
-	manifest := flag.String("manifest", "", "Path to the pkg.json manifest the driver reads")
-	goBinary := flag.String("go", "", "Path to the Go SDK binary, used to derive GOROOT")
-	stdlibDir := flag.String("stdlib-pkg-dir", "", "Directory of compiled stdlib .a archives, used as export data")
-	packageFlag := flag.String("package", "", "Go package directory to lint")
-	outputFlag := flag.String("out", "", "SARIF output path")
-	skipTests := flag.Bool("skip-tests", false, "Exclude test files from analysis")
-	flag.Parse()
+// Main runs the golangci tool with args (the tool name already stripped) and
+// returns the process exit code.
+func Main(arguments []string) int {
+	flags := flag.NewFlagSet("golangci", flag.ExitOnError)
+	binary := flags.String("golangci-lint", "", "Path to the pinned golangci-lint binary")
+	driver := flags.String("driver", "", "Path to a gopackagesdriver executable (default: this binary under its launcher name)")
+	manifest := flags.String("manifest", "", "Path to the pkg.json manifest the driver reads")
+	goBinary := flags.String("go", "", "Path to the Go SDK binary, used to derive GOROOT")
+	stdlibDir := flags.String("stdlib-pkg-dir", "", "Directory of compiled stdlib .a archives, used as export data")
+	packageFlag := flags.String("package", "", "Go package directory to lint")
+	outputFlag := flags.String("out", "", "SARIF output path")
+	skipTests := flags.Bool("skip-tests", false, "Exclude test files from analysis")
+	_ = flags.Parse(arguments)
 
 	if *packageFlag == "" {
 		fmt.Fprintln(os.Stderr, "missing --package")
@@ -53,12 +59,9 @@ func run(binary, driver, manifest, goBinary, stdlibDir, packageDir, outputPath s
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	if binary == "" {
-		bin, lookErr := exec.LookPath("golangci-lint")
-		if lookErr != nil {
-			return errors.New("golangci-lint not found in PATH and --golangci-lint was not provided")
-		}
-		binary = bin
+	binary, err = resolveBinary(binary)
+	if err != nil {
+		return err
 	}
 
 	cacheDir, err := os.MkdirTemp("", "gavel-golangci-cache-*")
@@ -76,6 +79,10 @@ func run(binary, driver, manifest, goBinary, stdlibDir, packageDir, outputPath s
 		configFile = ".golangci.yml"
 	}
 	arguments := buildLintArgs("./"+filepath.ToSlash(packageDir), outputPath, skipTests, configFile)
+	driver, err = orSelfLauncher(driver, cacheDir)
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(binary, arguments...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -84,6 +91,48 @@ func run(binary, driver, manifest, goBinary, stdlibDir, packageDir, outputPath s
 		return sarif.WriteFailed(outputPath, "golangci-lint", fmt.Sprintf("golangci-lint failed to run: %v", runErr))
 	}
 	return sarif.MarkSuccessful(outputPath)
+}
+
+// resolveBinary keeps an explicit golangci-lint path, otherwise looks it up in PATH.
+func resolveBinary(binary string) (string, error) {
+	if binary != "" {
+		return binary, nil
+	}
+	found, err := exec.LookPath("golangci-lint")
+	if err != nil {
+		return "", errors.New("golangci-lint not found in PATH and --golangci-lint was not provided")
+	}
+	return found, nil
+}
+
+// orSelfLauncher keeps an explicit driver, otherwise makes this binary its own.
+func orSelfLauncher(driver, cacheDir string) (string, error) {
+	if driver != "" {
+		return driver, nil
+	}
+	launcher, err := linkSelfAs(cacheDir, DriverLauncherName)
+	if err != nil {
+		return "", fmt.Errorf("create packages driver launcher: %w", err)
+	}
+	return launcher, nil
+}
+
+// linkSelfAs symlinks this executable as dir/name and returns the link. A
+// GOPACKAGESDRIVER must be a plain executable path, so the multi-call binary
+// serves as its own driver by being invoked under a different argv[0].
+func linkSelfAs(directory, launcherName string) (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if abs, absErr := filepath.Abs(executable); absErr == nil {
+		executable = abs
+	}
+	launcher := filepath.Join(directory, launcherName)
+	if err := os.Symlink(executable, launcher); err != nil {
+		return "", err
+	}
+	return launcher, nil
 }
 
 func buildLintArgs(packageDir, outputPath string, skipTests bool, configFile string) []string {

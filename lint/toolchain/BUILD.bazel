@@ -1,0 +1,13 @@
+exports_files([
+    "toolchain.bzl",
+    "repositories.bzl",
+    "integrity.bzl",
+])
+
+# The gavel-owned toolchain type that delivers the `gavel-lint` helper binary to
+# every lint aspect. Implementations: prebuilt per-platform release binaries, or
+# a source build in development (see extensions.bzl).
+toolchain_type(
+    name = "toolchain_type",
+    visibility = ["//visibility:public"],
+)

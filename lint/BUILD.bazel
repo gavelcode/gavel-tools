@@ -1,13 +1,30 @@
 load("@rules_go//go:def.bzl", "go_test")
 
-exports_files(["catalog.yaml"])
+exports_files([
+    "bridge.bzl",
+    "catalog.yaml",
+])
 
 go_test(
     name = "lint_test",
     srcs = ["catalog_test.go"],
     data = [
         "catalog.yaml",
+        "//:MODULE.bazel",
         "//lint/aspects:defs.bzl",
+        "@gavel_tools_go//:MODULE.bazel",  # keep
+        "@gavel_tools_go//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_java//:MODULE.bazel",  # keep
+        "@gavel_tools_java//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_python//:MODULE.bazel",  # keep
+        "@gavel_tools_python//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_rust//:MODULE.bazel",  # keep
+        "@gavel_tools_rust//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_rust_rs//:MODULE.bazel",  # keep
+        "@gavel_tools_rust_rs//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_typescript//:MODULE.bazel",  # keep
+        "@gavel_tools_typescript//lint/aspects:defs.bzl",  # keep
+        "@gavel_tools_web//:MODULE.bazel",  # keep
     ],
     deps = [
         "@com_github_stretchr_testify//assert",
