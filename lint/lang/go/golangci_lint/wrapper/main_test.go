@@ -267,3 +267,33 @@ func TestRun_WithoutDriverFlagLaunchesSelfAsPackagesDriver(t *testing.T) {
 	assert.Contains(t, string(got), "link ")
 	assert.Contains(t, string(got), "gavel-packagesdriver")
 }
+
+func TestOrSelfLauncher_KeepsExplicitDriver(t *testing.T) {
+	got, err := orSelfLauncher("/explicit/driver", t.TempDir())
+
+	require.NoError(t, err)
+	assert.Equal(t, "/explicit/driver", got)
+}
+
+func TestOrSelfLauncher_LinksSelfWhenNoDriver(t *testing.T) {
+	cacheDir := t.TempDir()
+
+	got, err := orSelfLauncher("", cacheDir)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(cacheDir, DriverLauncherName), got)
+}
+
+func TestOrSelfLauncher_WrapsLinkFailure(t *testing.T) {
+	_, err := orSelfLauncher("", filepath.Join(t.TempDir(), "missing"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create packages driver launcher")
+}
+
+func TestResolveBinary_KeepsExplicitPath(t *testing.T) {
+	got, err := resolveBinary("/opt/golangci-lint")
+
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/golangci-lint", got)
+}

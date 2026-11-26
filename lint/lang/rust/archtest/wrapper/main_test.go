@@ -757,3 +757,42 @@ func TestTrimToModule_RootLevelType(t *testing.T) {
 	assert.Equal(t, "", trimToModule("Foo"))
 	assert.Equal(t, "domain", trimToModule("domain"))
 }
+
+func TestParseRustImports_UnterminatedVisibilityIsNotAUse(t *testing.T) {
+	file := writeRustSource(t, "src", "pub(crate use crate::a::b;\n")
+
+	imports, err := parseRustImports(file, resolver{})
+
+	require.NoError(t, err)
+	assert.Empty(t, imports)
+}
+
+func TestParseRustImports_GroupedGlobImportsTheGroupPrefix(t *testing.T) {
+	file := writeRustSource(t, "src", "use crate::model::{*};\n")
+
+	imports, err := parseRustImports(file, resolver{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"src/model"}, importPaths(imports))
+}
+
+func TestParseRustImports_NestedGroupWithoutHeadKeepsPrefix(t *testing.T) {
+	file := writeRustSource(t, "src", "use crate::model::{{Item}};\n")
+
+	imports, err := parseRustImports(file, resolver{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"src/model"}, importPaths(imports))
+}
+
+func TestParseRustImports_BareSuperChainClimbsEveryLevel(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "src", "domain", "sub")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	file := filepath.Join(dir, "handler.rs")
+	require.NoError(t, os.WriteFile(file, []byte("use super::super;\n"), 0o644))
+
+	imports, err := parseRustImports(file, resolver{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.ToSlash(filepath.Dir(filepath.Dir(dir)))}, importPaths(imports))
+}

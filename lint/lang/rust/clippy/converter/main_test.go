@@ -45,3 +45,7 @@ func TestMain_ConvertsDiagnosticsToSarif(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"version": "2.1.0"`)
 }
+
+func TestMain_UnknownFlagIsUsageError(t *testing.T) {
+	assert.Equal(t, 2, Main([]string{"--bogus"}))
+}
