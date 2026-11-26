@@ -1,6 +1,6 @@
 module(
     name = "gavel_tools",
-    version = "0.4.0",
+    version = "0.4.1",
     bazel_compatibility = [">=9.0.0"],
     compatibility_level = 1,
 )
@@ -40,13 +40,13 @@ register_toolchains("@gavel_lint_toolchains//:all")
 # The language modules are dev dependencies only so catalog_test can read their
 # aspects and MODULE.bazel files (the module graph is cyclic by design: each
 # depends back on us). Consumers add the ones for the languages they lint.
-bazel_dep(name = "gavel_tools_go", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_java", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_python", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_typescript", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_web", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_rust", version = "0.4.0", dev_dependency = True)
-bazel_dep(name = "gavel_tools_rust_rs", version = "0.4.0", dev_dependency = True)
+bazel_dep(name = "gavel_tools_go", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_java", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_python", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_typescript", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_web", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_rust", version = "0.4.1", dev_dependency = True)
+bazel_dep(name = "gavel_tools_rust_rs", version = "0.4.1", dev_dependency = True)
 
 local_path_override(
     module_name = "gavel_tools_go",
