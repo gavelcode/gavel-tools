@@ -29,19 +29,19 @@ func run(files []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "usage: gavel-lint validate-bridge FILE.sarif...")
 		return exitUsageError
 	}
-	code := 0
-	for _, file := range files {
-		data, err := os.ReadFile(resolve(file))
+	exitCode := 0
+	for _, path := range files {
+		data, err := os.ReadFile(resolve(path))
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "validate-bridge: %v\n", err)
 			return exitUsageError
 		}
 		for _, problem := range sarif.ValidateBridge(data) {
-			_, _ = fmt.Fprintf(stdout, "%s: %s\n", file, problem)
-			code = exitViolations
+			_, _ = fmt.Fprintf(stdout, "%s: %s\n", path, problem)
+			exitCode = exitViolations
 		}
 	}
-	return code
+	return exitCode
 }
 
 // resolve anchors a relative path at the directory `bazel run` was invoked from,

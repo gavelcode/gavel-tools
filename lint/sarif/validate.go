@@ -62,25 +62,25 @@ func ValidateBridge(data []byte) []string {
 		return []string{"runs: at least one run is required"}
 	}
 	var problems []string
-	for runIndex, run := range document.Runs {
-		for _, problem := range validateRun(run) {
+	for runIndex, bridged := range document.Runs {
+		for _, problem := range validateRun(bridged) {
 			problems = append(problems, fmt.Sprintf("runs[%d]: %s", runIndex, problem))
 		}
 	}
 	return problems
 }
 
-func validateRun(run bridgeRun) []string {
+func validateRun(bridged bridgeRun) []string {
 	var problems []string
-	if strings.TrimSpace(run.Tool.Driver.Name) == "" {
+	if strings.TrimSpace(bridged.Tool.Driver.Name) == "" {
 		problems = append(problems, "tool.driver.name must be non-empty")
 	}
-	for resultIndex, result := range run.Results {
+	for resultIndex, result := range bridged.Results {
 		for _, problem := range validateResult(result) {
 			problems = append(problems, fmt.Sprintf("results[%d]: %s", resultIndex, problem))
 		}
 	}
-	for invocationIndex, invocation := range run.Invocations {
+	for invocationIndex, invocation := range bridged.Invocations {
 		if problem := validateInvocation(invocation); problem != "" {
 			problems = append(problems, fmt.Sprintf("invocations[%d]: %s", invocationIndex, problem))
 		}

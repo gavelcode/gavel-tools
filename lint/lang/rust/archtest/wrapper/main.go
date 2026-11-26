@@ -155,26 +155,26 @@ type useCollector struct {
 
 // consume feeds one comment-free line of code, which may hold the start, the
 // end, or several whole use statements.
-func (c *useCollector) consume(code string, lineNum int) {
-	for code != "" {
+func (c *useCollector) consume(source string, lineNum int) {
+	for source != "" {
 		if c.pending.Len() == 0 {
-			rest, ok := cutUseKeyword(code)
+			rest, ok := cutUseKeyword(source)
 			if !ok {
 				return
 			}
 			c.pendingLine = lineNum
-			code = rest
+			source = rest
 		}
-		semicolon := strings.Index(code, ";")
+		semicolon := strings.Index(source, ";")
 		if semicolon < 0 {
-			c.pending.WriteString(code)
+			c.pending.WriteString(source)
 			c.pending.WriteString(" ")
 			return
 		}
-		c.pending.WriteString(code[:semicolon])
+		c.pending.WriteString(source[:semicolon])
 		c.imports = append(c.imports, parseUseStatement(c.pending.String(), c.fileDir, c.pendingLine, c.resolver)...)
 		c.pending.Reset()
-		code = strings.TrimSpace(code[semicolon+1:])
+		source = strings.TrimSpace(source[semicolon+1:])
 	}
 }
 
