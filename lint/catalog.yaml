@@ -11,6 +11,18 @@
 # tools that need them carry them). `aspects_bzl` is the module-relative label
 # where the aspects live; a consumer prefixes it with the module name it binds
 # gavel_tools under.
+#
+# `variants` (optional, per tool) swaps in a different aspect when the consumer
+# builds with a different ruleset than the default entry assumes. Each variant:
+#   when_bazel_dep  a module name present in the consumer's MODULE.bazel; the
+#                   variant applies when it is there, else the entry itself is used
+#   module          the Bazel module the consumer must depend on to get the aspect
+#   aspects_bzl     module-relative label of the variant's aspects, resolved under
+#                   `module` (not gavel_tools)
+#   aspect          the aspect name in that file
+#   build_flags     (optional) flags the variant needs, replacing the entry's
+# gavel-tools never imposes a ruleset: the default entry uses the consumer's
+# rules_rust, a variant uses whatever the consumer already builds with.
 version: 1
 aspects_bzl: //lint/aspects:defs.bzl
 languages:
@@ -70,11 +82,26 @@ languages:
       sarif_suffix: .archtest.sarif
   rust:
     - name: clippy
+      module: gavel_tools_rust
       aspect: rust_clippy_submission_aspect
       sarif_suffix: .clippy.sarif
       build_flags:
         - "--@rules_rust//rust/settings:capture_clippy_output=True"
         - "--@rules_rust//rust/settings:clippy_output_diagnostics=True"
+      variants:
+        # rules_rs compiles with its own rules_rust repo, so the default aspect
+        # never matches it (and now reports that as a failed execution). The
+        # flags use rules_rs's canonical repo name, as the go entry does: the
+        # apparent `@rules_rust` is not visible from a consumer's root module
+        # unless it use_repo()s rules_rs's extension itself ("No repository
+        # visible as '@rules_rust'"), whereas this resolves in every consumer.
+        - when_bazel_dep: rules_rs
+          module: gavel_tools_rust_rs
+          aspects_bzl: //lint/aspects:defs.bzl
+          aspect: rust_clippy_submission_aspect
+          build_flags:
+            - "--@@rules_rs++rules_rust+rules_rust//rust/settings:capture_clippy_output=True"
+            - "--@@rules_rs++rules_rust+rules_rust//rust/settings:clippy_output_diagnostics=True"
     - name: archtest
       aspect: rust_archtest_submission_aspect
       sarif_suffix: .archtest.sarif

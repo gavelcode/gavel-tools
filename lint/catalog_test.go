@@ -19,11 +19,24 @@ type catalogFile struct {
 }
 
 type toolEntry struct {
-	Name        string   `yaml:"name"`
-	Aspect      string   `yaml:"aspect"`
-	SARIFSuffix string   `yaml:"sarif_suffix"`
-	BuildFlags  []string `yaml:"build_flags"`
-	Binary      string   `yaml:"binary"`
+	Name        string    `yaml:"name"`
+	Module      string    `yaml:"module"`
+	AspectsBzl  string    `yaml:"aspects_bzl"`
+	Aspect      string    `yaml:"aspect"`
+	SARIFSuffix string    `yaml:"sarif_suffix"`
+	BuildFlags  []string  `yaml:"build_flags"`
+	Binary      string    `yaml:"binary"`
+	Variants    []variant `yaml:"variants"`
+}
+
+// variant is an alternative way to run a tool, selected by a Bazel module the
+// consumer already depends on (see the catalog.yaml header).
+type variant struct {
+	WhenBazelDep string   `yaml:"when_bazel_dep"`
+	Module       string   `yaml:"module"`
+	AspectsBzl   string   `yaml:"aspects_bzl"`
+	Aspect       string   `yaml:"aspect"`
+	BuildFlags   []string `yaml:"build_flags"`
 }
 
 func loadCatalog(t *testing.T) catalogFile {
@@ -119,4 +132,39 @@ func TestCatalog_EntriesAreWellFormed(t *testing.T) {
 			seen[key] = true
 		}
 	}
+}
+
+func TestCatalog_VariantsAreWellFormed(t *testing.T) {
+	catalog := loadCatalog(t)
+	count := 0
+	for language, tools := range catalog.Languages {
+		for _, tool := range tools {
+			for _, v := range tool.Variants {
+				count++
+				id := language + "/" + tool.Name
+				assert.NotEmpty(t, v.WhenBazelDep, "%s variant has no when_bazel_dep", id)
+				assert.NotEmpty(t, v.Module, "%s variant has no module", id)
+				assert.NotEmpty(t, v.AspectsBzl, "%s variant has no aspects_bzl", id)
+				assert.NotEmpty(t, v.Aspect, "%s variant has no aspect", id)
+			}
+		}
+	}
+	assert.NotZero(t, count, "the catalog must publish at least the rules_rs clippy variant")
+}
+
+func TestCatalog_RulesRsClippyVariantBindsToTheRulesRsModule(t *testing.T) {
+	catalog := loadCatalog(t)
+	var clippy toolEntry
+	for _, tool := range catalog.Languages["rust"] {
+		if tool.Name == "clippy" {
+			clippy = tool
+		}
+	}
+	assert.Equal(t, "gavel_tools_rust", clippy.Module)
+	require.Len(t, clippy.Variants, 1)
+	v := clippy.Variants[0]
+	assert.Equal(t, "rules_rs", v.WhenBazelDep)
+	assert.Equal(t, "gavel_tools_rust_rs", v.Module)
+	assert.Equal(t, "//lint/aspects:defs.bzl", v.AspectsBzl)
+	assert.Equal(t, "rust_clippy_submission_aspect", v.Aspect)
 }
